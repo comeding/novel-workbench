@@ -1,0 +1,23 @@
+# 进镜像的只有 backend/ 和 frontend/，其余一律排除，构建上下文保持在 1MB 以内
+data/
+collector/
+_legacy/
+workbench/
+scanner/
+dist/
+rev/
+_qqreader/
+
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.png
+*.pyc
+__pycache__/
+.git/
+.gitignore
+.venv/
+.env
+*.bat
+*.md

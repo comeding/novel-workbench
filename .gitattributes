@@ -1,0 +1,22 @@
+# 统一换行，避免跨平台 checkout 时 bat 被改成 LF
+* text=auto
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.py text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+
+# 二进制，别做换行和 diff 处理
+*.db binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

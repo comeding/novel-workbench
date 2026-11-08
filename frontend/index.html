@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网文工作台 · 扫榜</title>
+<link rel="stylesheet" href="vendor/element-plus.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div id="app" v-cloak>
+
+  <el-container class="shell">
+
+    <!-- ---------- 左侧导航 ---------- -->
+    <el-aside width="216px" class="side">
+      <div class="brand">
+        <div class="seal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/>
+            <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5"/>
+            <path d="M9 8h6"/>
+          </svg>
+        </div>
+        <div class="brand-txt">
+          <h1>网文工作台</h1>
+          <p>NOVEL OPS</p>
+        </div>
+      </div>
+
+      <div class="nav-label">工作台</div>
+      <el-menu class="nav" default-active="qq" :default-openeds="['scan']" @select="onMenu">
+        <el-sub-menu index="scan">
+          <template #title>
+            <el-icon><data-line></data-line></el-icon>
+            <span>扫榜</span>
+          </template>
+          <el-menu-item index="qq">
+            <el-icon><reading></reading></el-icon>
+            <span>QQ阅读</span>
+          </el-menu-item>
+        </el-sub-menu>
+      </el-menu>
+
+      <div class="side-foot">
+        <div class="dev">
+          <i class="pulse"></i>
+          <div>
+            <b>{{ collectEnabled ? '本机采集可用' : '只读模式' }}</b>
+            <span>{{ collectEnabled ? 'MuMu · Android 15' : '服务端不跑采集' }}</span>
+          </div>
+        </div>
+      </div>
+    </el-aside>
+
+    <!-- ---------- 右侧主体 ---------- -->
+    <el-container class="main">
+      <el-header class="topbar" height="66px">
+        <div class="tb-left">
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item>扫榜</el-breadcrumb-item>
+            <el-breadcrumb-item>QQ阅读</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ tabName }}</el-breadcrumb-item>
+          </el-breadcrumb>
+          <h2>{{ tabName }}</h2>
+        </div>
+        <div class="right">
+          <el-tag size="large" effect="plain" round class="chip">
+            数据截至 <b>{{ (collectedAt || '').slice(5, 16) || '—' }}</b>
+          </el-tag>
+          <el-button plain @click="notReady">
+            <el-icon><download></download></el-icon>导出
+          </el-button>
+          <el-button type="primary" :loading="pulling" :disabled="!collectEnabled" @click="pullData">
+            <el-icon v-if="!pulling"><refresh></refresh></el-icon>
+            {{ pulling ? '采集中…' : (collectEnabled ? '立即采集' : '本机采集') }}
+          </el-button>
+        </div>
+      </el-header>
+
+      <el-main class="body" :class="{ dense, tiny }" v-loading="loading" element-loading-text="正在读取榜单数据…">
+
+        <!-- 初始化失败 -->
+        <el-result v-if="err" icon="error" title="页面初始化失败" :sub-title="err">
+          <template #extra>
+            <el-button type="primary" @click="boot">重试</el-button>
+          </template>
+        </el-result>
+
+        <!-- 无数据 -->
+        <el-result v-else-if="!loading && !boards.vip" icon="info" title="数据库里还没有榜单数据"
+                   sub-title="先跑一次采集：python collector/collect.py，或导入 data/raw 里的 json">
+          <template #extra>
+            <el-button type="primary" @click="pullData">立即采集</el-button>
+          </template>
+        </el-result>
+
+        <template v-else>
+          <!-- 主视觉 -->
+          <section class="hero">
+            <div class="hero-txt">
+              <h1>QQ阅读 · 实时榜单监控</h1>
+              <p>com.qq.reader · Android 15 · MuMu 模拟器</p>
+              <div class="hero-tags">
+                <el-tag effect="light" round>按分类整榜覆盖</el-tag>
+                <el-tag effect="light" round type="success">只保留最新一版</el-tag>
+                <el-tag effect="light" round type="warning">加入书架取自详情页</el-tag>
+              </div>
+            </div>
+            <div class="hero-art" aria-hidden="true">
+              <svg viewBox="0 0 300 150" fill="none">
+                <defs>
+                  <linearGradient id="gb" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0" stop-color="#9cc0ff"/><stop offset="1" stop-color="#3d7bfd"/>
+                  </linearGradient>
+                  <linearGradient id="gc" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef5ff"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="236" cy="36" r="50" fill="#dcebff" opacity=".55"/>
+                <circle cx="52" cy="132" r="34" fill="#e8f1ff" opacity=".8"/>
+                <g>
+                  <rect x="128" y="24" width="146" height="100" rx="14" fill="url(#gc)" stroke="#d5e4ff"/>
+                  <circle cx="145" cy="41" r="3.2" fill="#c6dbff"/>
+                  <circle cx="156" cy="41" r="3.2" fill="#dbe8ff"/>
+                  <circle cx="167" cy="41" r="3.2" fill="#eaf2ff"/>
+                  <path d="M143 96h116" stroke="#e6efff" stroke-width="1.4"/>
+                  <rect x="146" y="80" width="12" height="16" rx="4" fill="#bcd4ff"/>
+                  <rect x="167" y="70" width="12" height="26" rx="4" fill="#8fb6ff"/>
+                  <rect x="188" y="58" width="12" height="38" rx="4" fill="url(#gb)"/>
+                  <rect x="209" y="74" width="12" height="22" rx="4" fill="#a8c8ff"/>
+                  <rect x="230" y="64" width="12" height="32" rx="4" fill="#6f9dff"/>
+                  <path d="M152 60l20-8 21 5 21-13 21 6" stroke="#5b90ff" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>
+                </g>
+                <g>
+                  <rect x="36" y="96" width="96" height="13" rx="6.5" fill="#d3e3ff"/>
+                  <rect x="42" y="80" width="86" height="13" rx="6.5" fill="#b9d1ff"/>
+                  <rect x="49" y="64" width="72" height="13" rx="6.5" fill="#8fb6ff"/>
+                  <rect x="62" y="46" width="46" height="14" rx="7" fill="url(#gb)"/>
+                  <path d="M85 52v6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+                </g>
+                <circle cx="196" cy="126" r="7" fill="#eaf2ff"/>
+                <circle cx="196" cy="126" r="2.4" fill="#7fa9ff"/>
+                <path d="M262 116h14M269 109v14" stroke="#c6dbff" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </section>
+
+          <!-- 采集进度 -->
+          <el-card v-if="prog.running || prog.ok !== null || prog.error" shadow="never" class="prog-card">
+            <div class="prog-hd">
+              <span class="dot" :class="prog.error ? 'err' : (prog.ok ? 'ok' : 'run')"></span>
+              <b>{{ progTitle }}</b>
+              <span class="sp">{{ progTime }}</span>
+              <el-button v-if="prog.running" size="small" plain @click="cancelPull">中止</el-button>
+            </div>
+            <el-progress :percentage="progPct" :status="prog.error ? 'exception' : (prog.ok ? 'success' : '')"
+                         :stroke-width="6" :show-text="false" class="prog-bar"></el-progress>
+            <pre v-if="prog.lines.length" class="prog-log">{{ prog.lines.join('\n') }}</pre>
+          </el-card>
+
+          <!-- 榜单 -->
+          <el-card shadow="never" class="board-card">
+            <div class="card-hd">
+              <el-tabs v-model="activeTab" class="board-tabs" @tab-change="onTab">
+                <el-tab-pane name="vip">
+                  <template #label>会员榜<em class="tab-note">{{ tabNote.vip }}</em></template>
+                </el-tab-pane>
+                <el-tab-pane name="new">
+                  <template #label>新书榜<em class="tab-note">{{ tabNote.new }}</em></template>
+                </el-tab-pane>
+              </el-tabs>
+
+              <div class="toolbar">
+                <el-input v-model="st.q" class="f-search" placeholder="搜索书名或作者" clearable @input="st.page = 1">
+                  <template #prefix><el-icon><search></search></el-icon></template>
+                </el-input>
+                <el-select v-model="st.cat" class="f-sel" placeholder="全部分类" @change="st.page = 1">
+                  <el-option label="全部分类" value="">
+                    <span>全部分类</span><span class="opt-n">{{ (cur.books || []).length }}</span>
+                  </el-option>
+                  <el-option v-for="c in catList" :key="c" :label="c" :value="c">
+                    <span>{{ c }}</span><span class="opt-n">{{ ((cur.cats[c] || {}).books || []).length }}</span>
+                  </el-option>
+                </el-select>
+                <el-select v-model="st.w" class="f-sel sm" @change="st.page = 1">
+                  <el-option label="全部字数" :value="0"></el-option>
+                  <el-option label="10 万字以下" :value="10"></el-option>
+                  <el-option label="5 万字以下" :value="5"></el-option>
+                </el-select>
+                <span class="cnt">{{ total }} / {{ ds.books.length }} 条</span>
+                <el-tag effect="plain" round class="cid">cid {{ ds.cid || '—' }}</el-tag>
+              </div>
+            </div>
+
+            <el-table :data="pageRows" row-key="bid" class="board-table"
+                      :max-height="tableH" :style="{ '--row-h': rowH + 'px' }" @row-click="openBook">
+              <el-table-column width="70" label="排名">
+                <template #default="{ row }">
+                  <span class="rk" :class="row.r <= 3 ? 'top' : ''">{{ row.r }}</span>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="书名 / 细分分类" min-width="250">
+                <template #default="{ row }">
+                  <div class="bk">
+                    <b>{{ row.t }}</b>
+                    <span>{{ row.c3 || row.c2 }}<template v-if="row.lb"> · {{ row.lb }}</template></span>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="作者" width="138" show-overflow-tooltip>
+                <template #default="{ row }"><span class="dim">{{ row.a || '—' }}</span></template>
+              </el-table-column>
+
+              <el-table-column label="分类" width="96">
+                <template #default="{ row }">
+                  <el-tag v-if="row.c2" effect="plain" size="small" round>{{ row.c2 }}</el-tag>
+                  <span v-else class="dim">—</span>
+                </template>
+              </el-table-column>
+
+              <el-table-column width="92">
+                <template #header><span class="th" @click="sortBy('w')">字数<i class="ar" :class="arrow('w')"></i></span></template>
+                <template #default="{ row }"><span class="mono">{{ row.w ? row.w + '万' : '—' }}</span></template>
+              </el-table-column>
+
+              <el-table-column width="130">
+                <template #header><span class="th" @click="sortBy('n')">加入书架<i class="ar" :class="arrow('n')"></i></span></template>
+                <template #default="{ row }">
+                  <span class="mono shelf"
+                        :title="row.sh ? row.sh + ' 加入书架' : '暂无详情数据，显示榜单热度 ' + $fmt.exact(row.n)">
+                    {{ $fmt.shelf(row) }}
+                  </span>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="徽章" width="132">
+                <template #default="{ row }">
+                  <el-tag v-if="row.bg" type="danger" effect="light" size="small" round>{{ row.bg }}</el-tag>
+                  <span v-else class="dim">—</span>
+                </template>
+              </el-table-column>
+
+              <el-table-column width="96">
+                <template #header><span class="th" @click="sortBy('d')">更新<i class="ar" :class="arrow('d')"></i></span></template>
+                <template #default="{ row }"><span class="mono dim">{{ (row.d || '').slice(5, 10) || '—' }}</span></template>
+              </el-table-column>
+
+              <template #empty>
+                <el-empty description="没有匹配的作品" :image-size="96">
+                  <span class="dim">换个关键词，或放宽分类 / 字数筛选</span>
+                </el-empty>
+              </template>
+            </el-table>
+
+            <div class="pager">
+              <el-pagination background layout="total, sizes, prev, pager, next" :total="total"
+                             v-model:current-page="st.page" v-model:page-size="st.size"
+                             :page-sizes="sizeOptions" @size-change="onSizeChange"></el-pagination>
+            </div>
+          </el-card>
+        </template>
+      </el-main>
+    </el-container>
+  </el-container>
+
+  <!-- ---------- 详情抽屉 ---------- -->
+  <el-drawer v-model="drawer" size="520px" :with-header="false" class="book-drawer" v-if="current">
+    <div class="dr-hd">
+      <div>
+        <h3>{{ current.t }}</h3>
+        <p>{{ current.a || '—' }}<template v-if="current.c3"> · {{ current.c3 }}</template></p>
+      </div>
+      <el-button circle text @click="drawer = false">
+        <el-icon><close></close></el-icon>
+      </el-button>
+    </div>
+
+    <div class="dr-bd">
+      <div class="dr-grid">
+        <div class="dr-cell">
+          <div class="k">榜单排名</div>
+          <div class="v">{{ current.r }}<small>/ {{ drawerTotal }}</small></div>
+        </div>
+        <div class="dr-cell">
+          <div class="k">加入书架</div>
+          <div class="v">{{ $fmt.shelf(current) }}<small>{{ current.sh ? '人' : '榜单热度' }}</small></div>
+        </div>
+        <div class="dr-cell">
+          <div class="k">总字数</div>
+          <div class="v">{{ current.wx ? $fmt.exact(current.wx) : (current.w || '—') }}<small>{{ current.wx ? '字' : '万字' }}</small></div>
+        </div>
+        <div class="dr-cell">
+          <div class="k">最新章节</div>
+          <div class="v sm">第 {{ current.lc || '—' }} 章</div>
+        </div>
+      </div>
+
+      <div class="lbl">书籍信息</div>
+      <el-descriptions :column="2" border class="dr-desc">
+        <el-descriptions-item label="分类">{{ current.c2 || '—' }} / {{ current.c3 || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ current.d || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="书友">{{ current.fans || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="评分">{{ current.sc ? current.sc + ' 分' : '—' }}</el-descriptions-item>
+        <el-descriptions-item label="标签">{{ current.lb || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="徽章">{{ current.bg || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="书籍 ID" :span="2"><code>{{ current.bid }}</code></el-descriptions-item>
+      </el-descriptions>
+
+      <div class="lbl">在榜位置</div>
+      <div class="pos">
+        <div v-for="(p, i) in positions" :key="i" class="pos-row">
+          <span class="pn">{{ p.board }} · {{ p.cat }}</span>
+          <span class="pr">#{{ p.rank }}<small> / {{ p.total }}</small></span>
+        </div>
+        <el-empty v-if="!positions.length" description="暂无在榜记录" :image-size="64"></el-empty>
+      </div>
+
+      <div class="lbl">简介</div>
+      <p class="tx">{{ current.in || '（暂无简介）' }}</p>
+    </div>
+
+    <div class="dr-ft">
+      <el-button style="flex:1" @click="copyBid">
+        <el-icon><copy-document></copy-document></el-icon>复制书籍 ID
+      </el-button>
+      <el-button type="primary" style="flex:1" @click="drawer = false">关闭</el-button>
+    </div>
+  </el-drawer>
+</div>
+
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/element-plus.full.min.js"></script>
+<script src="vendor/zh-cn.min.js"></script>
+<script src="vendor/icons.iife.min.js"></script>
+<script src="assets/api.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
