@@ -158,6 +158,19 @@
         return this.fmtSec(p.elapsed);
       },
 
+      /* 空库时的提示：区分「正在自动采」「可以点按钮采」「这台机器采不了」 */
+      emptyHint() {
+        const p = this.prog;
+        if (p.error) {
+          return '自动采集没成功：' + p.error +
+            '　常见原因：模拟器没启动、没开 root、QQ阅读 没登录。修好后点下面重试。';
+        }
+        if (!this.collectEnabled) {
+          return '当前是只读模式：采集要在装了 MuMu 模拟器的 Windows 上跑，采完推到这台机器。';
+        }
+        return '点一下，直接从 QQ阅读 抓一份最新榜单（23 个分类，约 3 分钟）。';
+      },
+
       drawerTotal() { return (this.ds.books || []).length || '—'; }
     },
 
@@ -192,9 +205,10 @@
           const D = await loadDataset();
           this.collectedAt = D.collected_at || '';
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null };
-          if (!this.boards.vip) return;
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
+          /* 空库时服务正在自动采，先把进度接上再撤掉 loading，避免闪一下「没数据」 */
+          await this.attachRunning();
         } catch (e) {
           const msg = (e && e.message) || String(e || '未知错误');
           this.err = /fetch|Network|Failed|abort/i.test(msg)
@@ -204,7 +218,6 @@
           this.loading = false;
         }
         this.checkHealth();
-        this.attachRunning();
         this.openFromQuery();
       },
 
@@ -384,11 +397,11 @@
         catch (e) { ElMessage.error('中止失败'); }
       },
 
-      /* 页面打开时若已有任务在跑，自动接上进度 */
+      /* 页面打开时若已有任务在跑，自动接上进度。
+         服务启动后会自动抓一轮，首屏很可能正撞上「采集中」。 */
       attachRunning() {
-        if (location.protocol === 'file:') return;
-        WBAPI.health()
-          .then(h => (h ? WBAPI.status() : null))
+        if (location.protocol === 'file:') return Promise.resolve();
+        return WBAPI.status()
           .then(s => {
             if (s && s.running) {
               this.prog = { running: true, ok: null, board: s.board || '', done: s.cats_done || 0,
@@ -397,6 +410,18 @@
             }
           })
           .catch(() => {});
+      },
+
+      showEnvHelp() {
+        ElMessageBox.alert(
+          '采集端只能在装了 MuMu 模拟器的 Windows 上跑：\n\n' +
+          '1. 模拟器装 QQ阅读 并登录，手动打开一次排行榜\n' +
+          '2. 模拟器设置里打开 ROOT 权限，重启模拟器\n' +
+          '3. 双击「③ 环境自检.bat」，全绿即可\n' +
+          '4. 双击「② 采集数据.bat」采完入库\n\n' +
+          '采完把库推到这台机器：\npython collector/collect.py --push http://本机IP:8765',
+          '采集端要接模拟器', { confirmButtonText: '知道了', type: 'info' }
+        ).catch(() => {});
       }
     },
 

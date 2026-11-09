@@ -135,6 +135,16 @@ def _already_running(port):
         return False
 
 
+def _auto_collect(push_url):
+    """后台抓一轮最新数据，失败只打印，不影响服务本身。"""
+    ok, err = collect.start(push_url=push_url)
+    if ok:
+        print("  自动采集    已开始，进度见页面（约 3 分钟）")
+    else:
+        print("  自动采集    没起来：%s" % err)
+        print("              可以先双击「③ 环境自检.bat」看看缺什么")
+
+
 def main():
     argv = sys.argv[1:]
     host = Config.HOST
@@ -193,6 +203,15 @@ def main():
     print("  触发采集    %s" % ("允许（本机）" if Config.collect_enabled() else "禁止（部署模式）"))
     if not Config.TOKEN:
         print("  上报口令    data/.token（部署到公网请改用 WB_TOKEN 环境变量）")
+
+    # 第一次跑（库是空的）或数据放太久了，就直接去抓最新一轮，不用先去命令行敲采集。
+    # --collect 强制每次都采；WB_AUTO_COLLECT=0 可完全关掉。
+    if "--collect" in argv or Config.auto_collect(st["entries"], st.get("collected_at", "")):
+        threading.Timer(0.8, _auto_collect, args=("http://127.0.0.1:%d" % port,)).start()
+    elif st["entries"]:
+        print("  数据新鲜度  %s 采的，先直接用" % (st.get("collected_at") or "?"))
+        print("  抓最新数据  点页面右上角「立即采集」，或跑 collector/collect.py")
+
     print("")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

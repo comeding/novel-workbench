@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -160,16 +161,40 @@ def instances(root=None):
             continue
         if info.get("error_code") not in (0, None):
             continue
-        if not info.get("adb_port"):        # 没配置的实例没有端口，跳过
+        if not info.get("name"):            # 没配置的槽位
             continue
+        idx = str(info.get("index", i))
+        # 实例没启动时 MuMu 不返回 adb_port，但端口是固定的：16384 起、每实例 +32
+        try:
+            base_port = 16384 + int(idx) * 32
+        except ValueError:
+            base_port = 16384
         out.append({
-            "index": info.get("index", str(i)),
+            "index": idx,
             "host": info.get("adb_host_ip") or "127.0.0.1",
-            "port": info.get("adb_port"),
+            "port": info.get("adb_port") or base_port,
             "started": bool(info.get("is_android_started")),
             "android": info.get("android_version") or "",
         })
     return out
+
+
+def start_instance(index, root=None, wait=110):
+    """拉起没启动的实例，并等到 adb 端口可用。
+
+    目的：让「双击就能跑」成立——模拟器没开时脚本自己开，不用人先去点开。
+    """
+    mgr = find_manager(root)
+    if not mgr:
+        return False
+    _run([mgr, "control", "-v", str(index), "launch"], timeout=30)
+    t0 = time.time()
+    while time.time() - t0 < wait:
+        time.sleep(3)
+        insts = instances(root)
+        if any(str(i["index"]) == str(index) and i["started"] for i in insts):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- 找设备
@@ -229,7 +254,8 @@ def detect_device(adb, cfg=None):
         seen.add(s)
         if ":" in s:
             _run([adb, "connect", s], timeout=15)
-        ok, has_app, has_db = _check(adb, s)
+        # 探测阶段给短超时：设备没起来时每个候选等 25 秒会拖到一分钟以上
+        ok, has_app, has_db = _check(adb, s, timeout=10)
         if not ok:
             continue
         if has_app and has_db:

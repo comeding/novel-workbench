@@ -56,6 +56,37 @@ def run_collect(boards):
     return save(result)
 
 
+def wake_emulator():
+    """模拟器没开就顺手开一下，省掉「先去点开 MuMu」这一步。"""
+    insts = env.instances()
+    if not insts or any(i["started"] for i in insts):
+        return False                      # 没装 MuMu，或者本来就开着（问题在别处）
+    idx = insts[0]["index"]
+    print("\n模拟器没在运行，正在启动实例 %s（约 1 分钟）…" % idx)
+    if not env.start_instance(idx):
+        print("  没拉起来，手动打开 MuMu 再试一次")
+        return False
+    time.sleep(5)
+    return True
+
+
+def wait_device(seconds=150):
+    """实例起来了但 Android 内置系统还在初始化时，等 adb shell 能用。
+
+    冷启动最容易踩这个：虚拟机 20 秒就「启动完成」，但 pm/getprop 还要一两分钟才响应，
+    这期间自检会报「没连上任何设备」，看起来像环境坏了。
+    """
+    adb = env.find_adb()
+    if not adb:
+        return False
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        if env.detect_device(adb):
+            return True
+        time.sleep(6)
+    return False
+
+
 def main():
     argv = sys.argv[1:]
     flags = {a for a in argv if a.startswith("-")}
@@ -72,6 +103,16 @@ def main():
     ok, _info = env.doctor()
     if "--check" in flags:
         return 0 if ok else 1
+
+    wake = "--no-wake" not in flags
+    if not ok and wake and wake_emulator():
+        ok, _info = env.doctor()
+
+    # 还不行、但确实有个实例在跑：多半是 Android 没起完，等它
+    if not ok and wake and any(i["started"] for i in env.instances()):
+        print("\n等模拟器里的系统就绪…")
+        if wait_device():
+            ok, _info = env.doctor()
 
     if not ok:
         print("\n环境没就绪，先按上面提示补齐。只想看已有数据的话，直接启动后端：")

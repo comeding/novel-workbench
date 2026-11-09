@@ -67,7 +67,8 @@
         </div>
         <div class="right">
           <el-tag size="large" effect="plain" round class="chip">
-            数据截至 <b>{{ (collectedAt || '').slice(5, 16) || '—' }}</b>
+            {{ collectedAt ? '数据截至' : '尚未采集' }}
+            <b v-if="collectedAt">{{ (collectedAt || '').slice(5, 16) }}</b>
           </el-tag>
           <el-button plain @click="notReady">
             <el-icon><download></download></el-icon>导出
@@ -88,13 +89,29 @@
           </template>
         </el-result>
 
-        <!-- 无数据 -->
-        <el-result v-else-if="!loading && !boards.vip" icon="info" title="数据库里还没有榜单数据"
-                   sub-title="先跑一次采集：python collector/collect.py，或导入 data/raw 里的 json">
-          <template #extra>
-            <el-button type="primary" @click="pullData">立即采集</el-button>
-          </template>
-        </el-result>
+        <!-- 无数据：服务启动后会自动抓一轮，这里显示进度；失败就给原因和重试 -->
+        <div v-else-if="!loading && !boards.vip" class="empty-wrap">
+          <el-card v-if="pulling" shadow="never" class="prog-card empty-prog">
+            <div class="prog-hd">
+              <span class="dot run"></span>
+              <b>{{ progTitle }}</b>
+              <span class="sp">{{ progTime }}</span>
+              <el-button size="small" plain @click="cancelPull">中止</el-button>
+            </div>
+            <el-progress :percentage="progPct" :stroke-width="6" :show-text="false" class="prog-bar"></el-progress>
+            <p class="prog-tip">首次运行会自动抓取 QQ阅读 最新榜单，23 个分类约 3 分钟，中途别操作模拟器。</p>
+            <pre v-if="prog.lines.length" class="prog-log">{{ prog.lines.join('\n') }}</pre>
+          </el-card>
+
+          <el-result v-else :icon="prog.error ? 'warning' : 'info'"
+                     :title="prog.error ? '没能抓到数据' : '还没有榜单数据'"
+                     :sub-title="emptyHint">
+            <template #extra>
+              <el-button v-if="collectEnabled" type="primary" @click="pullData">开始采集</el-button>
+              <el-button v-else type="primary" plain @click="showEnvHelp">怎么接上模拟器</el-button>
+            </template>
+          </el-result>
+        </div>
 
         <template v-else>
           <!-- 主视觉 -->

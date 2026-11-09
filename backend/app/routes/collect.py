@@ -122,33 +122,55 @@ def _run(boards, push_url):
         STATE.ended = time.time()
         STATE.ok = proc.returncode == 0
         if not STATE.ok and not STATE.error:
-            STATE.error = "采集进程退出码 %s" % proc.returncode
+            # 采集脚本失败时日志里已经写了原因（缺设备 / 没 root / 找不到入口），
+            # 直接把那一行抛给页面，别让人对着「退出码 1」猜。
+            STATE.error = _reason(STATE.lines) or ("采集进程退出码 %s" % proc.returncode)
+
+
+def _reason(lines):
+    for line in reversed(lines):
+        s = line.strip()
+        if s.startswith("[!!]") or "还差" in s or "环境没就绪" in s or s.startswith("[!]"):
+            return s.lstrip("[!] ").strip()[:120]
+    return ""
+
+
+def start(boards=None, push_url=None):
+    """起一轮采集（不阻塞）。返回 (ok, error)。
+
+    网页按钮和「服务启动时自动采」都走这里，保证两条入口行为一致：
+    采集器采完自己 POST 回 /api/ingest，前端只看 STATE 的进度。
+    """
+    if not Config.collect_enabled():
+        return False, "这台机器不允许触发采集（部署模式）"
+    if not os.path.exists(Config.COLLECT_SCRIPT):
+        return False, "找不到采集脚本：%s" % Config.COLLECT_SCRIPT
+
+    with STATE.lock:
+        if STATE.running:
+            return False, "已经在采集了"
+        STATE.running = True
+        STATE.started = time.time()
+        STATE.reset()
+
+    threading.Thread(target=_run, args=(boards, push_url), daemon=True).start()
+    return True, ""
 
 
 @router.post(r"/api/collect")
 def collect(req):
-    if not Config.collect_enabled():
-        return json_response({"ok": False, "error": "这台机器不允许触发采集（部署模式）"}, 403)
-    if not os.path.exists(Config.COLLECT_SCRIPT):
-        return json_response({"ok": False, "error": "找不到采集脚本：%s" % Config.COLLECT_SCRIPT}, 500)
-
     try:
         payload = req.json()
     except ValueError:
         payload = {}
     boards = payload.get("boards")
 
-    with STATE.lock:
-        if STATE.running:
-            return json_response({"ok": False, "error": "已经在采集了"}, 409)
-        STATE.running = True
-        STATE.started = time.time()
-        STATE.reset()
-
     # 采集完让采集器自己把结果推回来，走同一条入库路径
-    host = "127.0.0.1"
-    push = "http://%s:%d" % (host, req.server_port)
-    threading.Thread(target=_run, args=(boards, push), daemon=True).start()
+    push = "http://127.0.0.1:%d" % req.server_port
+    ok, err = start(boards, push)
+    if not ok:
+        code = 403 if "不允许" in err else (409 if "已经" in err else 500)
+        return json_response({"ok": False, "error": err}, code)
     return {"ok": True, "started": True}
 
 

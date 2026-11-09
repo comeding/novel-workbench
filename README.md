@@ -3,6 +3,8 @@
 采集 QQ阅读 App 的**会员榜**、**新书榜**（共 23 个分类子榜），存入 SQLite，看板展示当前排名。
 库里只留 App 最近一次给出的那份数据——每次采集整榜覆盖，不做历史积累。
 
+**跑起来就是真数据**：仓库里不带数据库、不带样例数据，空库启动会自动抓一轮最新榜单。
+
 ## 为什么分成三块
 
 ```
@@ -23,32 +25,36 @@ MuMu + QQ阅读  →  ADB 采集器  →  POST /api/ingest  →  SQLite  →  GE
 
 只依赖 Python 标准库，**不需要 pip install 任何东西**（Python 3.10+）。
 
-### 1. 先看看界面（不需要模拟器）
+仓库里**不带数据库、也不带样例数据**——`data/` 是各人本机自己的数据目录（已写进 `.gitignore`），
+首次启动时自动创建。**启动即采集**：空库、或者上次采的数据已经超过 6 小时，服务会在后台直接去
+QQ阅读 抓一轮最新榜单；有旧数据的话先显示旧的，采完自动刷新，页面顶部一直能看到进度。
 
 ```bash
 git clone <仓库地址> 小说工作站
 cd 小说工作站
-cp demo/workbench-demo.db data/workbench.db   # 演示库：每榜每分类前 20 名
-python backend/server.py
+python backend/server.py      # 空库时自动开始采集
 ```
 
-浏览器会自动打开 <http://localhost:8765>；Windows 也可以直接双击 `① 看榜单.bat`。
+浏览器自动打开 <http://localhost:8765>；Windows 也可以直接双击 `① 看榜单.bat`。
 
-`demo/workbench-demo.db`（380 KB）是从真实采集结果里截的样张：23 个分类、425 条，
-用来让人一眼看清页面长什么样。不放它也行，空库时页面会提示「去采集」。
+前提是这台机器能采集：Windows + MuMu 模拟器 + root + QQ阅读 登录态，配置见
+下面「第一次：把模拟器配好」。在 Mac / Linux / 服务器上跑只会得到只读看板，
+数据得由采集端推过来（见「部署到服务器」）。
 
-### 2. 采真实数据
+### 之后刷新数据
 
-仓库里**不带数据库**——`data/` 是各人本机自己的数据目录（已写进 `.gitignore`），
-首次运行自动创建。要采数据得有一台装了模拟器的 Windows，条件见下一节。
+三个入口等价，都是跑 `collector/collect.py`，采完自动入库、页面刷新即新数据：
 
 ```bash
-python collector/collect.py --check    # 环境自检，等价于双击 ③ 环境自检.bat
-python collector/collect.py            # 两个榜 23 个分类，约 3 分钟，采完自动入库
-python backend/server.py               # 起服务看结果
+python collector/collect.py            # 两个榜 23 个分类，约 3 分钟
+python collector/collect.py --check    # 只做环境自检，等价于双击 ③ 环境自检.bat
 ```
 
-### 3. 放到服务器
+- 页面右上角「立即采集」（采集进度、日志都在页面上）
+- 双击 `② 采集数据.bat`
+- 想让每次启动都重采：`python backend/server.py --collect`
+
+### 放到服务器
 
 见下面「部署到服务器」：`docker compose up -d --build`，库文件挂在宿主 `./data`。
 
@@ -56,21 +62,21 @@ python backend/server.py               # 起服务看结果
 
 | 双击 | 作用 | 前提 |
 | --- | --- | --- |
-| `① 看榜单.bat` | 起后端 + 打开看板 | 有 Python 即可 |
+| `① 看榜单.bat` | 起后端 + 打开看板（空库会顺手采一轮） | 有 Python 即可 |
 | `② 采集数据.bat` | 采一轮并入账 | 模拟器已启动、已开 root |
 | `③ 环境自检.bat` | 检查 adb / root / App / 缓存库 | 模拟器已启动 |
 
 看板固定在 `http://localhost:8765`。想换端口：`set WB_PORT=9000` 后再启动。
 
-看板里点「拉取数据」和双击 `②` 等价——两者都是调 `collector/collect.py`，采完自动入库，
-页面刷新就是新数据。
+看板里点「立即采集」和双击 `②` 等价——两者都是调 `collector/collect.py`，采完自动入库，
+页面刷新就是新数据。不想让启动时自动采，`set WB_AUTO_COLLECT=0` 再启动。
 
 ## 第一次：把模拟器配好
 
 三件事，只做一次：
 
-1. **装 MuMu + QQ阅读**，登录自己的账号；打开 App → 书城 → 排行榜，**手动点一次会员榜和新书榜**，
-   让 App 把数据写进本地缓存。
+1. **装 MuMu + QQ阅读**，登录自己的账号。打开 App → 书城 → 排行榜，确认能进去
+   （脚本会自己导航到这一步，但不是每次都能绕开 App 的引导弹窗，先手动确认一次最稳）。
 2. **开 root**：设置中心 → 其他 → ROOT 权限 → 打开 → **重启模拟器**。采集要读 App 私有目录。
 3. **双击 `③ 环境自检.bat`**，看到全绿就行：
 
@@ -99,6 +105,9 @@ python collector/collect.py --no-upload     # 只落盘到 data/raw，不上报
 
 一轮 23 个分类约 3 分钟，中途别动模拟器。采集结果存两份：
 `data/raw/*.json`（原始响应，可重放）和数据库里的当前快照。
+
+模拟器没开时脚本会自己调 `MuMuManager` 拉起实例（等 adb 就绪再继续，约 1 分钟），
+不想让它自动开就加 `--no-wake`。模拟器里没登录 / 没开 root 这类问题会直接报在日志里。
 
 **采集原理（踩过的坑，改脚本前先看一眼）**
 QQ阅读 的榜单数据会被 App 缓存两层：内存里一份、`http_cache` 表里一份。
@@ -205,6 +214,7 @@ python backend/server.py --host 0.0.0.0 --port 8765
 | `WB_FRONTEND` | `frontend` | 静态目录 |
 | `WB_TOKEN` | 自动生成 | 采集端上报口令 |
 | `WB_ALLOW_COLLECT` | 本机自动为开 | 是否允许网页触发采集 |
+| `WB_AUTO_COLLECT` | 开 | 启动时若库为空就自动抓一轮；`0` 关掉 |
 
 ## 接口
 

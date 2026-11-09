@@ -1,6 +1,8 @@
 """运行配置。全部走环境变量，方便 Docker / 本机两种形态共用一套代码。"""
 import os
 import secrets
+import sys
+import time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # backend/
 ROOT = os.path.dirname(BASE)                                        # 项目根
@@ -31,11 +33,44 @@ class Config:
     # 采集脚本位置（触发采集时用）
     COLLECT_SCRIPT = _path("WB_COLLECT_SCRIPT", os.path.join("collector", "collect.py"))
 
+    # 数据超过这么久（小时）就在启动时自动补一轮；默认 6
+    AUTO_COLLECT_AGE = float(os.environ.get("WB_AUTO_COLLECT_AGE") or 6) * 3600
+
     @classmethod
     def collect_enabled(cls):
+        """能不能在这台机器上真采。
+
+        采集器依赖 Windows 上的 MuMu + adb，所以「本机」还不够，
+        必须是 Windows 且有采集脚本，否则页面按钮会误导人。
+        """
         if cls.ALLOW_COLLECT is not None:
             return cls.ALLOW_COLLECT
-        return cls.HOST in ("127.0.0.1", "localhost")
+        return (cls.HOST in ("127.0.0.1", "localhost")
+                and sys.platform == "win32"
+                and os.path.exists(cls.COLLECT_SCRIPT))
+
+    @classmethod
+    def auto_collect(cls, entries=0, collected_at=""):
+        """启动时要不要自动抓一轮最新数据。
+
+        - `WB_AUTO_COLLECT=0` 一律不采（纯展示端）
+        - `WB_AUTO_COLLECT=1` 每次启动都采
+        - 不设：空库必采；有数据但超过 6 小时也补一次（页面先显示旧数据，后台悄悄刷新）
+        """
+        v = os.environ.get("WB_AUTO_COLLECT", "").strip().lower()
+        if v in ("0", "false", "no", "off"):
+            return False
+        if not cls.collect_enabled():
+            return False
+        if v in ("1", "true", "yes", "on"):
+            return True
+        if not entries:
+            return True
+        try:
+            age = time.time() - time.mktime(time.strptime(collected_at, "%Y-%m-%d %H:%M:%S"))
+        except (TypeError, ValueError, OverflowError):
+            return True
+        return age > cls.AUTO_COLLECT_AGE
 
 
 def get_token():

@@ -188,6 +188,7 @@ body {
 .dot.ok { background: #23c07f; }
 .dot.err { background: #f0524d; }
 .prog-bar { margin: 10px 0 2px; }
+.prog-tip { margin: 10px 0 0; font-size: 12.5px; line-height: 1.7; color: #8695b5; }
 .prog-log {
   margin: 10px 0 0; max-height: 132px; overflow: auto;
   padding: 10px 12px; border-radius: 8px;
@@ -198,6 +199,16 @@ body {
 
 /* ---------- 榜单卡片 ---------- */
 .board-card .el-card__body { padding: 0 20px 12px; }
+
+/* 空库：首次自动采集的进度卡 / 引导（垂直居中，别贴在顶上） */
+.empty-wrap {
+  max-width: 760px; margin: 0 auto;
+  min-height: calc(100vh - 170px);
+  display: flex; flex-direction: column; justify-content: center;
+}
+.empty-wrap .el-result { padding: 28px 0 12px; }
+.empty-prog { margin-bottom: 0; }
+.empty-prog .el-card__body { padding: 16px 20px 18px; }
 
 /* 卡片头：tab 在左，筛选在右，共用一条分隔线 */
 .card-hd {

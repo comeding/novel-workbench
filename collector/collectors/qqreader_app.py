@@ -219,13 +219,46 @@ class AppRankCollector:
             raise RuntimeError("点了排行榜但没进榜单页；当前界面：" + self._labels(xml))
         return True
 
-    def click_board(self, name):
-        xml = self.dev.dump()
-        pos = find(xml, name, exact=True)
-        if not pos:
-            raise RuntimeError("左侧导航找不到「%s」；当前界面：%s" % (name, self._labels(xml)))
-        self.dev.tap(*pos)
-        time.sleep(2.5)
+    def current_board(self):
+        """App 现在停在哪个榜 —— 取缓存里最新一条榜单响应的 column 名。
+
+        比看界面文字可靠：分类标签两个榜长得一样，只有 column 名带得出「包月男生畅销榜」
+        还是「新书榜-男频」。
+        """
+        out = self.sql("select ifnull(json_extract(response,'$.columnInfo.name'),'') "
+                       "from http_cache where response like '%\"bookList\"%' "
+                       "order by _id desc limit 1;", timeout=30)
+        lines = [l.strip() for l in out.splitlines() if l.strip()]
+        return lines[-1] if lines else ""
+
+    def click_board(self, name, before=None, wait=18):
+        """切到某个榜，并确认真的切过去了。
+
+        只看「点了没报错」不够：冷启动时那一下可能被开屏弹窗吃掉，界面上还是上一个榜，
+        分类照样能读出来（只是别人的分类），响应按榜名过滤后全对不上——
+        表现就是「N 个分类全没抓到」。所以点完要盯着 column 名变过去。
+        """
+        key = BOARDS.get(name, "")
+        for attempt in range(1, 4):
+            if key and key in self.current_board():
+                log("  当前已在「%s」" % name)
+                return True
+            xml = self.dev.dump()
+            pos = find(xml, name, exact=True)
+            if not pos:
+                raise RuntimeError("找不到「%s」的入口；当前界面：%s" % (name, self._labels(xml)))
+            self.dev.tap(*pos)
+            if not key:
+                time.sleep(2.5)
+                return True
+            t0 = time.time()
+            while time.time() - t0 < wait:
+                if key in self.current_board():
+                    return True
+                time.sleep(1.2)
+            log("  点了「%s」但没切过去，重试 %d/3" % (name, attempt))
+            time.sleep(1.5)
+        raise RuntimeError("切不到「%s」；当前界面：%s" % (name, self._labels(self.dev.dump())))
 
     def _tab_row_y(self, default=None):
         """分类标签条所在的 y（取界面上实际节点，页面改版也不会失效）。"""
@@ -398,7 +431,7 @@ class AppRankCollector:
         # 取晚了这类响应会被当成「旧数据」漏掉。
         before = self.max_id()
         self.ensure_rank_page()
-        self.click_board(name)
+        self.click_board(name, before)
 
         cats = self.read_categories()
         log("  分类 %d 个：%s" % (len(cats), " ".join(cats)))
@@ -408,14 +441,14 @@ class AppRankCollector:
         data_map = {}
 
         # 读分类时的横滑通常已经把邻近分类都请求过一遍了，先把这批收下
-        self.drain(before, name, data_map, cats, wait=6)
+        self.drain(before, name, data_map, cats, wait=10)
 
         # 剩下的逐个点，点完就把新到的响应全收一遍（一次可能带回好几个分类）
         for cat in cats:
             if cat in data_map:
                 continue
             if self.click_category(cat):
-                self.drain(before, name, data_map, cats, wait=7)
+                self.drain(before, name, data_map, cats, wait=10)
             if cat not in data_map:
                 log("  ✗ %s 没抓到响应" % cat)
 
@@ -423,12 +456,17 @@ class AppRankCollector:
         missing = [c for c in cats if c not in data_map]
         if missing:
             log("  补采：%s（重开 App）" % " ".join(missing))
+            self.clear_rank_cache()
             self.restart_app()
+            before2 = self.max_id()
             self.ensure_rank_page()
-            self.click_board(name)
+            try:
+                self.click_board(name, before2)
+            except RuntimeError as e:
+                log("  [!] %s" % e)
             for cat in missing:
                 if self.click_category(cat):
-                    self.drain(before, name, data_map, cats, wait=7)
+                    self.drain(before2, name, data_map, cats, wait=10)
             still = [c for c in cats if c not in data_map]
             if still:
                 log("  ✗ 仍缺：%s" % " ".join(still))

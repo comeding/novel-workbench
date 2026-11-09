@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
-title 网文工作站 · 看榜单
+title 网文工作站 · 启动并抓取
 
 where python >nul 2>nul
 if errorlevel 1 (
@@ -16,6 +16,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo   启动服务…库里没数据时会自动去 QQ阅读 抓一轮最新榜单，
+echo   页面会显示采集进度（约 3 分钟），不用另外点。
+echo.
 python backend\server.py
 if errorlevel 1 (
   echo.
