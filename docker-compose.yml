@@ -15,7 +15,9 @@ services:
     environment:
       # 留空则服务端自动生成随机口令，写在 data/.token 里
       WB_TOKEN: "${WB_TOKEN:-}"
-      # 部署形态默认只读：容器里没打采集脚本，采集由你的电脑推过来。
-      # 想让服务器自己采（容器能出公网就行），把这里改成 "1"，并用下面 build 里的
-      # 完整镜像（Dockerfile 已带 collector/）。
-      WB_ALLOW_COLLECT: "0"
+      # 默认让容器自己采：起来就能看到数据，不用另开一台采集机。
+      # 容器出不了公网时页面会提示「没能抓到数据」，也可以设成 0 改回只读看板，
+      # 再用采集机推：python collector/api_rank.py --push http://这台机器:8765
+      WB_ALLOW_COLLECT: "${WB_ALLOW_COLLECT:-1}"
+      # 常驻巡检：每 6 小时看一眼，数据过期就补一轮（0 关闭）
+      WB_COLLECT_EVERY: "${WB_COLLECT_EVERY:-6}"

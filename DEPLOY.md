@@ -11,7 +11,7 @@
 | | 本机全栈 | 局域网 / NAS | 公网服务器 |
 | --- | --- | --- | --- |
 | 谁看 | 只有你自己 | 家里 / 团队几个人 | 任何人（建议加访问控制） |
-| 采集 | 同一台机器，网页按钮直接采 | 默认采集机推过来；服务器能出网也可自己采 | 默认采集机推过来；服务器能出网也可自己采 |
+| 采集 | 同一台机器，网页按钮直接采 | 容器自己采（能出网就行） | 容器自己采；出不了网就采集机推 |
 | 部署方式 | 双击 `① 看榜单.bat` | Docker 或 systemd | Docker + Nginx + HTTPS |
 | 难度 | 无 | 低 | 中 |
 
@@ -25,15 +25,17 @@
 
 - Docker + Docker Compose（推荐），或者 Python 3.10+
 - 一个开放端口（默认 8765；用 Nginx 反代的话只需要 80/443）
-- 2GB 内存足够，磁盘占用看你保留多少原始 JSON（当前一轮约 3MB，一天 4 轮约 12MB）
+- **能出公网**（要让容器自己采的话）——只要 `python collector/api_rank.py --check`
+  能打「接口连通 OK」就行
+- 2GB 内存足够，磁盘占用看你保留多少原始 JSON（一轮约 3MB，一天 4 轮约 12MB）
 
-采集机上需要：
+采集机只在「服务器不出网」时才需要：
 
-- 按 [QUICKSTART.md](QUICKSTART.md) 路线 A 配好环境，能单独跑通 `python collector\api_rank.py`
+- 任何一台能上网的电脑，按 [QUICKSTART.md](QUICKSTART.md) 路线 B 的第 1、2 步准备好项目
 - 能访问到服务器的地址（局域网 IP 或域名）
 
-> 顺序很重要：**先在采集机上把 `api_rank.py` 跑通，再来配服务器**。
-> 反过来做，出问题时你分不清是采集坏了还是推送坏了。
+> 顺序很重要：**先让服务的页面能打开，再决定谁来采数据**。
+> 服务器自己采不了（内网 NAS、公司代理）才去配采集机，别一上来就搭两台机器。
 
 ---
 
@@ -96,10 +98,11 @@ curl http://127.0.0.1:8765/api/health
 
 ```json
 {"ok": true, "service": "novel-workbench", "python": "3.12.7", "port": 8765,
- "collect_enabled": false, "collect_mode": "api", "db": "/data/workbench.db"}
+ "collect_enabled": true, "collect_mode": "api", "db": "/data/workbench.db"}
 ```
 
-`collect_enabled: false` 是对的，说明网页采集按钮已禁用（容器里没有采集脚本）。
+`collect_enabled: true` 说明容器允许自己采（`WB_ALLOW_COLLECT` 默认 `"1"`）。
+空库启动时会立刻采一轮，十几秒后页面就有数据；之后每 `WB_COLLECT_EVERY` 小时巡检一次。
 
 ### 5. 看日志
 
@@ -107,8 +110,20 @@ curl http://127.0.0.1:8765/api/health
 docker compose logs -f --tail 50
 ```
 
-日志很安静，只有 `POST /api/ingest` 这类写操作会打印一行。这是有意的，
-`main.py` 里 `log_message` 只记 POST。
+日志很安静：启动时会打采集那几行，之后只有 `POST /api/ingest` 这类写操作会打印，
+`main.py` 里 `log_message` 只记 POST。第一次启动应该看到类似：
+
+```
+  网文工作站  http://localhost:8765/
+  数据库      /data/workbench.db（0 条在榜 / 0 本书）
+  触发采集    允许
+  采集方式    直连接口（无需模拟器）
+  定时采集    每 6 小时检查一次，数据过期就自动补一轮
+
+  自动采集    已开始，进度见页面（约 15 秒）
+```
+
+十几秒后再看 `/api/stats`，`entries` 应该是 3000 多。
 
 ### 关于目录与卷
 
@@ -126,21 +141,25 @@ docker compose logs -f --tail 50
 
 ### 关于环境变量
 
-`docker-compose.yml` 里默认是 `WB_ALLOW_COLLECT: "0"`（只读看板，数据由采集机推）。
-镜像里其实带了 `collector/`，只要容器能出公网，把它改成 `"1"` 就能让服务器自己采：
+`docker-compose.yml` 里默认是**容器自己采**：
 
 ```yaml
 environment:
-  WB_ALLOW_COLLECT: "1"
-  WB_AUTO_COLLECT_AGE: "2"      # 可选：数据超过 2 小时就自动补一轮
+  WB_ALLOW_COLLECT: "${WB_ALLOW_COLLECT:-1}"   # 1 自己采 / 0 只读看板
+  WB_COLLECT_EVERY: "${WB_COLLECT_EVERY:-6}"   # 每几小时巡检一次，0 关闭
 ```
 
-改完 `docker compose up -d` 重启生效。这时网页右上角的「立即采集」可用，
-启动时数据过期也会自动采（原始 JSON 落在卷里的 `/data/raw`，重建镜像不丢）。
+原始 JSON 落在卷里的 `/data/raw`，重建镜像不丢。
 
-采集要出公网：容器在受限内网（NAS 默认 NAT、公司代理）里时先确认
-`docker compose exec app python collector/api_rank.py --check` 能打「接口连通 OK」，
-不通就配 `HTTPS_PROXY` 或者退回推送模式。
+容器在受限内网（NAS 默认 NAT、公司代理）里时先确认能出网：
+
+```bash
+docker compose exec web python collector/api_rank.py --check
+```
+
+打「接口连通 OK」就说明能采；打 ✗ 就配 `HTTPS_PROXY`，或者把
+`WB_ALLOW_COLLECT` 设成 `"0"` 退回「采集机推送」模式（数据用
+`python collector/api_rank.py --push http://服务器:8765` 推过来）。
 
 想换宿主机端口，改 `.env` 的 `WB_PORT`，容器内部始终是 8765。
 
@@ -195,8 +214,8 @@ WorkingDirectory=/opt/novel-workbench
 Environment=WB_HOST=0.0.0.0
 Environment=WB_PORT=8765
 Environment=WB_TOKEN=你的口令
-Environment=WB_ALLOW_COLLECT=0
-Environment=WB_AUTO_COLLECT=0
+Environment=WB_ALLOW_COLLECT=1
+Environment=WB_COLLECT_EVERY=6
 ExecStart=/usr/bin/python3 backend/server.py --no-open
 Restart=always
 RestartSec=3
@@ -209,9 +228,9 @@ WantedBy=multi-user.target
 
 两个环境变量的作用：
 
-- `WB_ALLOW_COLLECT=0`：禁用网页采集按钮，等同于 Docker 里的默认值。改成 `1` 就让这台
-  机器自己采（接口采集不依赖 Windows，Linux 一样能跑，只要服务器能出公网）
-- `WB_AUTO_COLLECT=0`：启动时不自动采，只在网页上手动点。想让它自己保持新鲜就去掉这行
+- `WB_ALLOW_COLLECT=1`：允许这台机器自己采（接口采集不依赖 Windows，Linux 一样能跑，
+  只要服务器能出公网）。设成 `0` 就只剩网页看板，数据靠采集机推
+- `WB_COLLECT_EVERY=6`：每 6 小时巡检一次，数据过期自动补采。设 `0` 只在启动时采一次
 
 > 采集脚本不在 `WorkingDirectory` 里也能跑：`Config.COLLECT_SCRIPT` 默认解析成
 > `<项目根>/collector/api_rank.py`。自检：`python3 collector/api_rank.py --check`。
@@ -274,7 +293,7 @@ server {
 ```
 
 `client_max_body_size` 这一行是必须的。默认 1MB，而一次完整上报（会员榜 + 新书榜
-23 个分类）实测 3MB 左右，不放开会得到 413，而且采集端只会报"上报失败"，
+32 个数据集）实测 3MB 左右，不放开会得到 413，而且采集端只会报"上报失败"，
 很容易误判成口令错了。
 
 ### 3. 上 HTTPS
@@ -464,7 +483,7 @@ docker compose up -d --build
 
 - [ ] `WB_TOKEN` 已设成一个足够长的随机串，不是空、不是 `123456`
 - [ ] 8765 只监听 `127.0.0.1`，公网只开放 443
-- [ ] `WB_ALLOW_COLLECT=0`（容器默认已设）
+- [ ] `WB_ALLOW_COLLECT` 按需设置：自己能出网就留 `1`，不然设 `0` 走推送
 - [ ] Nginx 配了 `client_max_body_size`，否则上报会 413
 - [ ] 看板是否要公开：不需要就用 `auth_basic` 挡住读接口
 - [ ] `data/` 有定时备份，且**做过一次恢复演练**——没试过恢复的备份等于没有

@@ -39,6 +39,10 @@ class Config:
     # 数据超过这么久（小时）就在启动时自动补一轮；默认 6
     AUTO_COLLECT_AGE = float(os.environ.get("WB_AUTO_COLLECT_AGE") or 6) * 3600
 
+    # 常驻运行时的定时采集：每隔这么多小时检查一次，数据过期就补一轮。
+    # 0 = 关闭（只靠启动时那一次）。容器里建议开着，否则不重启就一直吃老数据。
+    COLLECT_EVERY = float(os.environ.get("WB_COLLECT_EVERY") or 0) * 3600
+
     @classmethod
     def api_mode(cls):
         """是否使用直连接口采集（无需模拟器）。

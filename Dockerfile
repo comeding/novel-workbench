@@ -1,8 +1,8 @@
 # 网文工作站 · 服务端镜像
 #
 # 零第三方依赖，所以不需要 pip install，镜像里只有标准库 + 代码本身。
-# 采集器也打进来（collector/），但默认不启用：WB_ALLOW_COLLECT=0 时服务只做展示，
-# 数据由你的电脑推过来；想让容器自己采就设 WB_ALLOW_COLLECT=1（需容器能出公网）。
+# collector/ 也打进来：容器起来就能自己采（能出公网的话），打开页面直接有数据。
+# 想做成纯展示的只读看板，建容器时设 WB_ALLOW_COLLECT=0。
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \

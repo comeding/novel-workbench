@@ -10,8 +10,9 @@ import sys
 import threading
 import time
 
-from ..config import Config
+from ..config import Config, get_token
 from ..router import Router, json_response
+from .. import db
 
 router = Router()
 
@@ -87,7 +88,8 @@ STATE = State()
 def _run(boards, push_url):
     cmd = [sys.executable, "-u", Config.COLLECT_SCRIPT] + list(boards or [])
     if push_url:
-        cmd += ["--push", push_url]
+        # 口令直接给过去，省得子进程去猜（它默认读 data/.token，库换个位置就对不上）
+        cmd += ["--push", push_url, "--token", get_token()]
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -132,6 +134,9 @@ def _reason(lines):
         s = line.strip()
         if s.startswith("[!!]") or "还差" in s or "环境没就绪" in s or s.startswith("[!]"):
             return s.lstrip("[!] ").strip()[:120]
+        # 采集成功了但没入库：口令不对、后端连不上，这些必须让页面看见
+        if "上报失败" in s or "上报被拒" in s:
+            return s.lstrip("   ").strip()[:120]
     return ""
 
 
@@ -155,6 +160,40 @@ def start(boards=None, push_url=None):
 
     threading.Thread(target=_run, args=(boards, push_url), daemon=True).start()
     return True, ""
+
+
+def start_scheduler(push_url, every=None):
+    """常驻模式下的定时补采。返回线程，没开启返回 None。
+
+    `WB_COLLECT_EVERY=6` 就是「每 6 小时看一眼，数据过期就采一轮」。
+    容器整天开着也不至于一直显示几天前的榜单。
+    """
+    every = Config.COLLECT_EVERY if every is None else every
+    if every <= 0 or not Config.collect_enabled():
+        return None
+    t = threading.Thread(target=_scheduler, args=(push_url, every), daemon=True)
+    t.start()
+    return t
+
+
+def _scheduler(push_url, every):
+    time.sleep(min(90, every))          # 启动那一刻可能已经在自动采了，别抢
+    while True:
+        try:
+            if not STATE.running:
+                last = db.stats().get("collected_at") or ""
+                try:
+                    age = time.time() - time.mktime(
+                        time.strptime(last, "%Y-%m-%d %H:%M:%S"))
+                except (TypeError, ValueError, OverflowError):
+                    age = Config.AUTO_COLLECT_AGE + 1
+                if age > Config.AUTO_COLLECT_AGE:
+                    ok, err = start(push_url=push_url)
+                    print("  定时采集    %s" % ("已开始" if ok else "跳过：%s" % err),
+                          flush=True)
+        except Exception as e:                   # noqa: BLE001
+            print("  定时采集    出错：%s" % e, flush=True)
+        time.sleep(every)
 
 
 @router.post(r"/api/collect")

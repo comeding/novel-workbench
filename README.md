@@ -1,10 +1,10 @@
 # 网文工作站 · QQ阅读扫榜
 
-把 QQ阅读 App 的**会员榜**和**新书榜**（共 19 个数据集）真实抓下来，存进 SQLite，
+把 QQ阅读 App 的**会员榜**和**新书榜**（共 32 个数据集）真实抓下来，存进 SQLite，
 用一个零构建的网页看板看排名、筛题材、比热度。
 
 不爬网页、不逆向签名、不依赖任何第三方包。采集端只要一台能上网的电脑，
-**不需要模拟器、不需要装 App、不需要登录**，一轮约 10 秒。库和看板可以放在任何地方。
+**不需要模拟器、不需要装 App、不需要登录**，一轮约 15 秒。库和看板可以放在任何地方。
 
 ```
 任何一台能上网的电脑                服务器 / Docker（后端）          任意托管（前端）
@@ -26,7 +26,7 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 1. **接口直连（默认）**：App 请求榜单时打的是明文 HTTP 接口
    `GET https://commontgw.reader.qq.com/v7_6_6/listDispatch?actionId=<榜单id>&action=rank…`，
    不需要登录、不需要 cookie、不需要签名，返回的是完整 JSON。每个榜单一个 `actionId`，
-   一页 200 条即全量。19 个数据集跑完约 10 秒，字段与 App 里看到的完全一致。
+   一页 200 条即全量。32 个数据集跑完约 15 秒，字段与 App 里看到的完全一致。
 2. **模拟器兜底（备选）**：如果哪天接口加了校验，可以退回「让 App 自己请求、再从它本地缓存里
    把响应读回来」的老办法——`collector/collect.py` + MuMu 模拟器 + ROOT，一轮 3~5 分钟。
 
@@ -39,13 +39,13 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 | **数据是真的** | 接口返回什么就存什么，精确字数、榜单热度原样保留，不做任何估算 |
 | **零依赖** | 后端和采集器只用 Python 标准库，不需要 `pip install` 任何东西 |
 | **零构建** | 前端 Vue 3 + Element Plus 全在 `frontend/vendor/`，不访问任何 CDN，内网/离线可用 |
-| **十秒一轮** | 直连接口，19 个数据集约 10 秒；跨平台，Windows / macOS / Linux 都能采 |
+| **十几秒一轮** | 直连接口，32 个数据集约 15 秒；跨平台，Windows / macOS / Linux 都能采 |
 | **可拆分** | 采集、存储、展示三块独立，笔记本采集 + 服务器看板是最常见的用法 |
 | **可重放** | 每轮采集的原始 JSON 都落盘在 `data/raw/`，后端挂了也能重新导入 |
 
 ### 看板上能做什么
 
-- 会员榜 / 新书榜 两个标签页，各 9~10 个分类子榜
+- 会员榜 / 新书榜 两个标签页，各 16 个分类子榜（含「全部」）
 - 按分类筛选、按书名或作者搜索
 - 按排名、热度、字数、加入书架人数排序
 - 分页浏览，点击书名看详情（简介、标签、它在各榜单里的当前位置）
@@ -66,11 +66,33 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 
 完整步骤（含每一步的预期输出和排障）见 **[QUICKSTART.md](QUICKSTART.md)**。
 
-**路线 A：自己采数据（任意系统，2 分钟就能跑起来）**
+### 方式一：Docker（推荐，起来就有数据）
+
+```bash
+git clone https://github.com/comeding/novel-workbench.git
+cd novel-workbench
+docker compose up -d --build
+```
+
+打开 `http://localhost:8765`（局域网里换成机器 IP）——**第一次打开会看到进度条，
+十几秒后自动变成完整榜单**，不用再做任何事。
+
+容器里带了采集器，默认自己采：空库时启动就采一轮，之后每 6 小时巡检一次，数据过期自动补。
+库和原始 JSON 都落在宿主机的 `./data/`，重建容器不丢。
+
+```bash
+docker compose logs -f        # 看采集进度
+docker compose restart        # 改了配置后重启
+```
+
+容器出不了公网（内网 NAS、公司网络）时，页面会提示「没能抓到数据」，
+这时把 `WB_ALLOW_COLLECT` 设为 `0` 变成只读看板，改由别的机器推数据——
+见下面「方式三」。
+
+### 方式二：本机双击（Windows，不用 Docker）
 
 ```bash
 git clone https://github.com/comeding/novel-workbench.git 小说工作站
-cd 小说工作站
 ```
 
 装好 Python 3.10+，双击 `③ 环境自检.bat`（看到「接口连通 OK」就行），
@@ -81,18 +103,19 @@ cd 小说工作站
 
 ```bash
 python collector/api_rank.py --check        # 自检：网络 / 接口 / 本机服务
-python collector/api_rank.py                # 采两个榜，约 10 秒，自动入库
+python collector/api_rank.py                # 采两个榜，约 15 秒，自动入库
 ```
 
-**路线 B：只要看板（Mac / Linux / NAS / 服务器）**
+### 方式三：只读看板 + 采集机推送
+
+适合「看板放公网、采集在内网」的分工：看板容器设 `WB_ALLOW_COLLECT=0`，
+采集机（任何能上网的电脑）跑
 
 ```bash
-git clone https://github.com/comeding/novel-workbench.git
-cd novel-workbench
-docker compose up -d --build
+python collector/api_rank.py --push http://看板地址:8765 --token 口令
 ```
 
-打开 `http://服务器IP:8765` 得到只读看板，数据由采集端推过来。
+`data/.token` 里就是口令。三种方式的数据结构完全一致，随时可以换。
 
 部署细节（反向代理、HTTPS、开机自启、备份、升级）见 **[DEPLOY.md](DEPLOY.md)**。
 
@@ -115,7 +138,7 @@ docker compose up -d --build
 │  │  └─ services/              入库事务、采集进程管理、详情补采
 │  └─ tools/                    import_legacy.py（重放 json）、backfill_exact.py（补精确字数）
 ├─ collector/                   采集端
-│  ├─ api_rank.py               主入口（默认）：直连榜单接口，10 秒一轮，任何系统都能跑
+│  ├─ api_rank.py               主入口（默认）：直连榜单接口，15 秒一轮，任何系统都能跑
 │  ├─ collect.py                备选入口：模拟器方案，自检 → 采两个榜 → 补详情 → 上报
 │  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
 │  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
@@ -166,7 +189,7 @@ docker compose up -d --build
 ```
 Python      3.13.14（C:\...\python.exe）
 采集脚本    C:\...\collector\api_rank.py
-榜单配置    2 个榜单 / 19 个数据集（内置表）
+榜单配置    2 个榜单 / 32 个数据集（内置表）
 接口地址    https://commontgw.reader.qq.com/v7_6_6/listDispatch
 接口连通    OK  0.2 秒，返回 1 条（pageSize=1）
 本机服务    http://127.0.0.1:8765  未运行（TimeoutError）
@@ -184,7 +207,7 @@ Python      3.13.14（C:\...\python.exe）
 ## 采集
 
 ```bash
-python collector/api_rank.py                 # 两个榜都采，约 10 秒，采完自动入库
+python collector/api_rank.py                 # 两个榜都采，约 15 秒，采完自动入库
 python collector/api_rank.py 会员榜           # 只采一个榜
 python collector/api_rank.py --check         # 只自检（网络 / 接口 / 本机服务）
 python collector/api_rank.py --list          # 打印榜单 id 表，不改数据
@@ -238,7 +261,7 @@ App 切某个分类时会预取邻近分类，所以脚本是「点一下、把�
 
 榜单接口只返回 `num`（榜单热度），**不是**「加入书架」人数。真正的书架数在书籍详情页，
 由 `detail.py` 单独补（可选，不跑也能用，只是那一栏空着）。模拟器方案的 `collect.py`
-跑完会自动接一段；接口方案的 `api_rank.py` 只跑 10 秒，所以详情要自己按需补：
+跑完会自动接一段；接口方案的 `api_rank.py` 只跑 15 秒，所以详情要自己按需补：
 
 ```bash
 python collector/detail.py                  # 补缺的
@@ -294,6 +317,7 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 | `WB_ALLOW_COLLECT` | 本机自动判断 | 是否允许网页触发采集，`0` 关 / `1` 开 |
 | `WB_AUTO_COLLECT` | 未设 | `0` 启动不采；`1` 每次启动都采；不设则空库或超时才采 |
 | `WB_AUTO_COLLECT_AGE` | `6` | 「超时」的阈值，单位小时 |
+| `WB_COLLECT_EVERY` | `0`（容器里 `6`） | 常驻时每几小时巡检一次，过期就补采；`0` 关闭 |
 | `WB_COLLECT_SCRIPT` | `collector/api_rank.py` | 网页触发采集时执行的脚本；换回模拟器就填 `collector/collect.py` |
 | `WB_PUSH` | `http://127.0.0.1:8765` | 采集端上报地址（`push.py` 读） |
 
@@ -334,7 +358,7 @@ POST /api/collect/cancel                  中止
 | 表 | 说明 |
 | --- | --- |
 | `boards` | 会员榜 / 新书榜，各自的 cid 和排序说明 |
-| `categories` | 19 个分类子榜（会员榜 10 + 新书榜 9），每个都是 App 真实请求回来的独立榜单 |
+| `categories` | 32 个分类子榜（会员榜 16 + 新书榜 16），每个都是 App 真实请求回来的独立榜单 |
 | `books` | 书目维表，`bid` 主键，同一本书在多个分类里只存一份简介；`shelf`/`fans`/`score` 来自详情页 |
 | `entries` | 当前在榜记录，`(榜单, 分类, 书)` 唯一，存名次与指标 |
 | `runs` | 采集日志（什么时候采的、多少条），删了不影响数据 |
@@ -430,7 +454,7 @@ curl -O https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js
 ## 说明与边界
 
 - 采集对象是 QQ阅读 **公开可见的榜单数据**，不涉及登录凭据、不读取用户隐私内容。
-  接口无签名，但请自觉控制频率：一轮 10 秒、19 个请求，日常几小时一次足够，
+  接口无签名，但请自觉控制频率：一轮 15 秒、32 个请求，日常几小时一次足够，
   别写循环去压它。
 - 项目仅供个人研究与选题参考，请遵守 QQ阅读 的用户协议，不要用于商业转载或数据倒卖。
 - 榜单口径、分类划分都归平台方所有，本项目只做本地留存与展示。

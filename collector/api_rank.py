@@ -367,10 +367,13 @@ def main(argv):
         log("  上报被拒：HTTP %s %s" % (e.code, body))
         if e.code == 401:
             log("  口令不对。看服务端 data/.token，或设 WB_TOKEN 环境变量")
+        # 数据是采到了（json/csv 都在），只是没进库：退出码 3，让页面显示原因
+        return 3
     except Exception as e:          # noqa: BLE001
         log("  上报失败：%s" % e)
         log("  后端没在跑？先双击「① 看榜单.bat」，再补推：")
         log("  python collector/push.py \"%s\" --push %s" % (path, base))
+        return 3
     return 0
 
 
