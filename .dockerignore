@@ -1,6 +1,6 @@
-# 进镜像的只有 backend/ 和 frontend/，其余一律排除，构建上下文保持在 1MB 以内
+# 进镜像的只有 backend/ collector/ frontend/，其余一律排除。
+# 注意：collector/ 必须打进去 —— 容器的自动采集是起 api_rank.py 这个子进程。
 data/
-collector/
 _legacy/
 workbench/
 scanner/
