@@ -15,5 +15,7 @@ services:
     environment:
       # 留空则服务端自动生成随机口令，写在 data/.token 里
       WB_TOKEN: "${WB_TOKEN:-}"
-      # 部署形态下禁止从网页触发采集：服务器上没有模拟器
+      # 部署形态默认只读：容器里没打采集脚本，采集由你的电脑推过来。
+      # 想让服务器自己采（容器能出公网就行），把这里改成 "1"，并用下面 build 里的
+      # 完整镜像（Dockerfile 已带 collector/）。
       WB_ALLOW_COLLECT: "0"

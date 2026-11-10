@@ -34,7 +34,10 @@ import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(BASE)
-OUT_DIR = os.path.join(ROOT, "data", "raw")
+# 原始 JSON 落盘位置。容器里把 WB_RAW 指到卷上（/data/raw），重建镜像也不丢。
+OUT_DIR = os.environ.get("WB_RAW") or os.path.join(ROOT, "data", "raw")
+if not os.path.isabs(OUT_DIR):
+    OUT_DIR = os.path.join(ROOT, OUT_DIR)
 CID_FILE = os.path.join(BASE, "rank_cids.json")
 
 API = "https://commontgw.reader.qq.com/v7_6_6/listDispatch"

@@ -1,8 +1,8 @@
 # 部署指南
 
 服务端零依赖、单进程、只用一个 SQLite 文件，所以部署很轻。
-麻烦的地方不在服务本身，而在**采集端和服务器是两台机器**这件事上——看这份文档时
-先记住这个前提，很多配置项的意义就清楚了。
+采集不再依赖模拟器：任何一台能出公网的机器都能跑，所以「服务端顺带自己采」
+也成了可行选项——单机 NAS 就够了，不必再单独留一台采集机。
 
 ---
 
@@ -11,7 +11,7 @@
 | | 本机全栈 | 局域网 / NAS | 公网服务器 |
 | --- | --- | --- | --- |
 | 谁看 | 只有你自己 | 家里 / 团队几个人 | 任何人（建议加访问控制） |
-| 采集 | 同一台机器，网页按钮直接采 | 采集机推到服务器 | 采集机推到服务器 |
+| 采集 | 同一台机器，网页按钮直接采 | 默认采集机推过来；服务器能出网也可自己采 | 默认采集机推过来；服务器能出网也可自己采 |
 | 部署方式 | 双击 `① 看榜单.bat` | Docker 或 systemd | Docker + Nginx + HTTPS |
 | 难度 | 无 | 低 | 中 |
 
@@ -126,8 +126,21 @@ docker compose logs -f --tail 50
 
 ### 关于环境变量
 
-`docker-compose.yml` 里写死了 `WB_ALLOW_COLLECT: "0"`，这是刻意的：容器里没有 `collector/`
-目录，允许触发采集只会得到一个失败的后台进程。不要改这一项。
+`docker-compose.yml` 里默认是 `WB_ALLOW_COLLECT: "0"`（只读看板，数据由采集机推）。
+镜像里其实带了 `collector/`，只要容器能出公网，把它改成 `"1"` 就能让服务器自己采：
+
+```yaml
+environment:
+  WB_ALLOW_COLLECT: "1"
+  WB_AUTO_COLLECT_AGE: "2"      # 可选：数据超过 2 小时就自动补一轮
+```
+
+改完 `docker compose up -d` 重启生效。这时网页右上角的「立即采集」可用，
+启动时数据过期也会自动采（原始 JSON 落在卷里的 `/data/raw`，重建镜像不丢）。
+
+采集要出公网：容器在受限内网（NAS 默认 NAT、公司代理）里时先确认
+`docker compose exec app python collector/api_rank.py --check` 能打「接口连通 OK」，
+不通就配 `HTTPS_PROXY` 或者退回推送模式。
 
 想换宿主机端口，改 `.env` 的 `WB_PORT`，容器内部始终是 8765。
 
@@ -196,9 +209,12 @@ WantedBy=multi-user.target
 
 两个环境变量的作用：
 
-- `WB_ALLOW_COLLECT=0`：禁用网页采集按钮，等同于 Docker 里的设置
-- `WB_AUTO_COLLECT=0`：启动时不尝试采集。虽然 `collect_enabled()` 在 Linux 上本来就返回
-  false，但显式写死能避免以后误改 `WB_ALLOW_COLLECT` 带来的意外
+- `WB_ALLOW_COLLECT=0`：禁用网页采集按钮，等同于 Docker 里的默认值。改成 `1` 就让这台
+  机器自己采（接口采集不依赖 Windows，Linux 一样能跑，只要服务器能出公网）
+- `WB_AUTO_COLLECT=0`：启动时不自动采，只在网页上手动点。想让它自己保持新鲜就去掉这行
+
+> 采集脚本不在 `WorkingDirectory` 里也能跑：`Config.COLLECT_SCRIPT` 默认解析成
+> `<项目根>/collector/api_rank.py`。自检：`python3 collector/api_rank.py --check`。
 
 ### 4. 启用
 
