@@ -201,6 +201,7 @@ def main():
     print("  数据库      %s（%d 条在榜 / %d 本书）" % (
         Config.DB_PATH, st["entries"], st["books"]))
     print("  触发采集    %s" % ("允许（本机）" if Config.collect_enabled() else "禁止（部署模式）"))
+    print("  采集方式    %s" % ("直连接口（无需模拟器）" if Config.api_mode() else "模拟器 + adb"))
     if not Config.TOKEN:
         print("  上报口令    data/.token（部署到公网请改用 WB_TOKEN 环境变量）")
 
@@ -210,7 +211,9 @@ def main():
         threading.Timer(0.8, _auto_collect, args=("http://127.0.0.1:%d" % port,)).start()
     elif st["entries"]:
         print("  数据新鲜度  %s 采的，先直接用" % (st.get("collected_at") or "?"))
-        print("  抓最新数据  点页面右上角「立即采集」，或跑 collector/collect.py")
+        print("  抓最新数据  点页面右上角「立即采集」，或跑 %s" % os.path.relpath(
+            Config.COLLECT_SCRIPT, os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))))
 
     print("")
     if open_browser:

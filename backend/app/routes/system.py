@@ -18,6 +18,7 @@ def health(req):
         "python": sys.version.split()[0],
         "port": req.server_port,
         "collect_enabled": Config.collect_enabled(),
+        "collect_mode": "api" if Config.api_mode() else "emulator",
         "db": Config.DB_PATH,
     }
 

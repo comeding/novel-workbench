@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,10 +48,18 @@ def resolve_token(base, token=None):
 def publish(payload, base=None, token=None, timeout=180, endpoint="/api/ingest"):
     base = resolve_base(base)
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        base + endpoint, data=body, method="POST",
-        headers={"Content-Type": "application/json",
-                 "X-Token": resolve_token(base, token)})
+    url = base + endpoint
+    tok = resolve_token(base, token)
+    headers = {"Content-Type": "application/json"}
+    if tok:
+        try:
+            tok.encode("latin-1")
+        except UnicodeEncodeError:
+            # HTTP 头只能放 latin-1。中文口令走查询参数，服务端两种都认。
+            url += ("&" if "?" in url else "?") + urllib.parse.urlencode({"token": tok})
+        else:
+            headers["X-Token"] = tok
+    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     with _OPENER.open(req, timeout=timeout) as res:
         return json.load(res)
 

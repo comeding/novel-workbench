@@ -51,6 +51,7 @@
         pulling: false,
         pollTimer: null,
         collectEnabled: true,
+        apiMode: true,
         vh: window.innerHeight,
         prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' }
       };
@@ -148,8 +149,13 @@
         if (p.error) return '采集失败 · ' + p.error;
         if (p.ok && !p.running) return '采集完成，正在刷新页面…';
         if (!p.running) return '正在启动采集…';
-        if (!p.board) return '采集中 · 环境自检';
+        if (!p.board) return '采集中 · 连接榜单接口';
         return `采集中 · ${p.board}` + (p.total ? `　${p.done}/${p.total} 个分类` : '');
+      },
+      progTip() {
+        return this.apiMode
+          ? '正在直接向 QQ阅读 榜单接口取数：19 个数据集约 10 秒，采完自动入库并刷新。'
+          : '正在从模拟器抓取 QQ阅读 最新榜单：23 个分类约 3 分钟，中途别操作模拟器。';
       },
       progTime() {
         const p = this.prog;
@@ -163,12 +169,17 @@
         const p = this.prog;
         if (p.error) {
           return '自动采集没成功：' + p.error +
-            '　常见原因：模拟器没启动、没开 root、QQ阅读 没登录。修好后点下面重试。';
+            (this.apiMode
+              ? '　通常是网络问题，检查能不能打开 qq.com，修好后点下面重试。'
+              : '　常见原因：模拟器没启动、没开 root、QQ阅读 没登录。修好后点下面重试。');
         }
         if (!this.collectEnabled) {
-          return '当前是只读模式：采集要在装了 MuMu 模拟器的 Windows 上跑，采完推到这台机器。';
+          return '当前是只读模式：采集要在能跑采集脚本的电脑上跑，采完推到这台机器。';
         }
-        return '点一下，直接从 QQ阅读 抓一份最新榜单（23 个分类，约 3 分钟）。';
+        if (this.apiMode) {
+          return '点一下，直接向 QQ阅读 榜单接口要一份最新数据（19 个数据集，约 10 秒）。';
+        }
+        return '点一下，从模拟器里的 QQ阅读 抓一份最新榜单（23 个分类，约 3 分钟）。';
       },
 
       drawerTotal() { return (this.ds.books || []).length || '—'; }
@@ -223,7 +234,9 @@
 
       checkHealth() {
         WBAPI.health().then(h => {
-          if (h && h.collect_enabled === false) this.collectEnabled = false;
+          if (!h) return;
+          if (h.collect_enabled === false) this.collectEnabled = false;
+          if (h.collect_mode) this.apiMode = h.collect_mode === 'api';
         }).catch(() => {});
       },
 
@@ -340,7 +353,7 @@
           if (e.status === 409) { ElMessage.info('已经在采集了'); this.startPoll(); return; }
           const off = e.status === 403;
           this.prog = { ...this.prog, running: false, error: off ? '这台机器不跑采集' : (e.message || '连接失败') };
-          ElMessage.error(off ? '采集要在装了模拟器的电脑上点' : (e.message || '连接失败'));
+          ElMessage.error(off ? '这台机器不跑采集，只能用别人采好的数据' : (e.message || '连接失败'));
           return;
         }
         if (!r || !r.ok) { this.prog = { ...this.prog, running: false, error: '启动采集失败' }; return; }
@@ -413,6 +426,17 @@
       },
 
       showEnvHelp() {
+        if (this.apiMode) {
+          ElMessageBox.alert(
+            '当前用「接口直连」采集，不需要模拟器：\n\n' +
+            '1. 确认这台机器能上网、能打开 qq.com\n' +
+            '2. 双击「② 采集数据.bat」，或直接在页面点「立即采集」\n' +
+            '3. 一轮约 10 秒，采完页面自动刷新\n\n' +
+            '自检：python collector/api_rank.py --list 能列出榜单 cid 就说明接口通。',
+            '接口采集', { confirmButtonText: '知道了', type: 'info' }
+          ).catch(() => {});
+          return;
+        }
         ElMessageBox.alert(
           '采集端只能在装了 MuMu 模拟器的 Windows 上跑：\n\n' +
           '1. 模拟器装 QQ阅读 并登录，手动打开一次排行榜\n' +

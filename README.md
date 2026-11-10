@@ -1,14 +1,14 @@
 # 网文工作站 · QQ阅读扫榜
 
-把 QQ阅读 App 的**会员榜**和**新书榜**（共 23 个分类子榜）真实抓下来，存进 SQLite，
+把 QQ阅读 App 的**会员榜**和**新书榜**（共 19 个数据集）真实抓下来，存进 SQLite，
 用一个零构建的网页看板看排名、筛题材、比热度。
 
-不爬网页、不逆向签名、不依赖任何第三方包。采集端只要一台能跑安卓模拟器的 Windows，
-库和看板可以放在任何地方。
+不爬网页、不逆向签名、不依赖任何第三方包。采集端只要一台能上网的电脑，
+**不需要模拟器、不需要装 App、不需要登录**，一轮约 10 秒。库和看板可以放在任何地方。
 
 ```
-本机 Windows（采集端）            服务器 / Docker（后端）          任意托管（前端）
-MuMu + QQ阅读  →  ADB 采集器  →  POST /api/ingest  →  SQLite  →  GET /api/*  →  看板页面
+任何一台能上网的电脑                服务器 / Docker（后端）          任意托管（前端）
+api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET /api/*  →  看板页面
 ```
 
 ---
@@ -20,27 +20,32 @@ MuMu + QQ阅读  →  ADB 采集器  →  POST /api/ingest  →  SQLite  →  GE
 
 这个项目解决的就是这一件事：**把 App 里的榜单原样变成可以查询、排序、导出的数据。**
 
-它不走逆向路线。榜单是 Flutter 渲染、请求走腾讯网关带 native 签名，硬算签名维护成本极高。
-这里换了个思路——**让 App 自己去请求，再从它的本地缓存里把响应读回来**：App 请求完会把原始
-JSON 落在 `qqreader_flutter.db` 的 `http_cache` 表里，采集器只要清缓存、重启 App、点一遍分类、
-再把新到的响应捞出来就行。
+它不走逆向签名路线。榜单请求走腾讯网关，签名在 native 层，硬算维护成本极高。
+这里换了两个思路：
 
-代价是采集必须有一台装了模拟器的 Windows；好处是签名一变也不会失效，只要 App 还能正常用，
-采集就还能用。
+1. **接口直连（默认）**：App 请求榜单时打的是明文 HTTP 接口
+   `GET https://commontgw.reader.qq.com/v7_6_6/listDispatch?actionId=<榜单id>&action=rank…`，
+   不需要登录、不需要 cookie、不需要签名，返回的是完整 JSON。每个榜单一个 `actionId`，
+   一页 200 条即全量。19 个数据集跑完约 10 秒，字段与 App 里看到的完全一致。
+2. **模拟器兜底（备选）**：如果哪天接口加了校验，可以退回「让 App 自己请求、再从它本地缓存里
+   把响应读回来」的老办法——`collector/collect.py` + MuMu 模拟器 + ROOT，一轮 3~5 分钟。
+
+两条路输出同一种 JSON，后端不用改，`WB_COLLECT_SCRIPT` 切一下就行。
 
 ### 特点
 
 | | |
 | --- | --- |
-| **数据是真的** | App 返回什么就存什么，精确字数、榜单热度原样保留，不做任何估算 |
+| **数据是真的** | 接口返回什么就存什么，精确字数、榜单热度原样保留，不做任何估算 |
 | **零依赖** | 后端和采集器只用 Python 标准库，不需要 `pip install` 任何东西 |
 | **零构建** | 前端 Vue 3 + Element Plus 全在 `frontend/vendor/`，不访问任何 CDN，内网/离线可用 |
+| **十秒一轮** | 直连接口，19 个数据集约 10 秒；跨平台，Windows / macOS / Linux 都能采 |
 | **可拆分** | 采集、存储、展示三块独立，笔记本采集 + 服务器看板是最常见的用法 |
 | **可重放** | 每轮采集的原始 JSON 都落盘在 `data/raw/`，后端挂了也能重新导入 |
 
 ### 看板上能做什么
 
-- 会员榜 / 新书榜 两个标签页，各 23 个分类子榜
+- 会员榜 / 新书榜 两个标签页，各 9~10 个分类子榜
 - 按分类筛选、按书名或作者搜索
 - 按排名、热度、字数、加入书架人数排序
 - 分页浏览，点击书名看详情（简介、标签、它在各榜单里的当前位置）
@@ -61,15 +66,23 @@ JSON 落在 `qqreader_flutter.db` 的 `http_cache` 表里，采集器只要清�
 
 完整步骤（含每一步的预期输出和排障）见 **[QUICKSTART.md](QUICKSTART.md)**。
 
-**路线 A：自己采数据（Windows + 模拟器）**
+**路线 A：自己采数据（任意系统，2 分钟就能跑起来）**
 
 ```bash
 git clone https://github.com/comeding/novel-workbench.git 小说工作站
 cd 小说工作站
 ```
 
-装好 Python 3.10+、MuMu、QQ阅读（登录）、开启 ROOT 并重启模拟器，然后双击 `③ 环境自检.bat`，
-八项全绿后双击 `① 看榜单.bat`，浏览器自动打开 <http://localhost:8765>，空库会自动抓一轮。
+装好 Python 3.10+，双击 `③ 环境自检.bat`（看到「接口连通 OK」就行），
+再双击 `① 看榜单.bat`，浏览器自动打开 <http://localhost:8765>，空库会自动抓一轮。
+想手动补一轮就双击 `② 采集数据.bat`，或在页面右上角点「立即采集」。
+
+命令行一样简单：
+
+```bash
+python collector/api_rank.py --check        # 自检：网络 / 接口 / 本机服务
+python collector/api_rank.py                # 采两个榜，约 10 秒，自动入库
+```
 
 **路线 B：只要看板（Mac / Linux / NAS / 服务器）**
 
@@ -101,18 +114,20 @@ docker compose up -d --build
 │  │  ├─ routes/                health / boards / books / runs / ingest / collect
 │  │  └─ services/              入库事务、采集进程管理、详情补采
 │  └─ tools/                    import_legacy.py（重放 json）、backfill_exact.py（补精确字数）
-├─ collector/                   采集端，只在有模拟器的 Windows 上跑
-│  ├─ collect.py                主入口：自检 → 采两个榜 → 补详情 → 上报
-│  ├─ collectors/qqreader_app.py  榜单采集（ADB 驱动 + 缓存读取）
-│  ├─ detail.py                 加入书架人数补采（走网页版，不需要模拟器）
+├─ collector/                   采集端
+│  ├─ api_rank.py               主入口（默认）：直连榜单接口，10 秒一轮，任何系统都能跑
+│  ├─ collect.py                备选入口：模拟器方案，自检 → 采两个榜 → 补详情 → 上报
+│  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
+│  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
+│  ├─ detail.py                 加入书架人数补采（走网页版）
 │  ├─ push.py                   单份 json 上报
-│  ├─ env.py                    ADB / MuMu / 设备 / root / 分辨率 探测与自检
-│  └─ adb.py                    adb 命令薄封装
+│  ├─ env.py                    ADB / MuMu / 设备 / root / 分辨率 探测与自检（仅模拟器方案）
+│  └─ adb.py                    adb 命令薄封装（仅模拟器方案）
 ├─ frontend/                    纯静态，零构建
 │  ├─ index.html                Vue 模板 + Element 组件
 │  ├─ assets/                   style.css / api.js / app.js
 │  └─ vendor/                   Vue 3.5、Element Plus 2.9、图标、中文包（约 1.7MB）
-├─ config.json                  采集端可选配置（adb 路径、设备序列号等）
+├─ config.json                  采集端可选配置（模拟器方案的 adb 路径、设备序列号等）
 ├─ Dockerfile / docker-compose.yml
 ├─ data/                        运行时生成，不进仓库
 │  ├─ workbench.db              SQLite 库
@@ -120,8 +135,8 @@ docker compose up -d --build
 │  ├─ archive/                  上报归档
 │  └─ .token                    未设 WB_TOKEN 时自动生成的口令
 ├─ ① 看榜单.bat                 起服务 + 打开看板
-├─ ② 采集数据.bat               采一轮并入账
-└─ ③ 环境自检.bat               检查 adb / root / App / 缓存库
+├─ ② 采集数据.bat               接口采一轮并入账
+└─ ③ 环境自检.bat               检查 Python / 网络 / 接口 / 本机服务
 ```
 
 `data/`、`_legacy/`、`rev/`、`_qqreader/` 都在 `.gitignore` 里，克隆下来不会包含
@@ -133,76 +148,97 @@ docker compose up -d --build
 
 | | 采集端（路线 A） | 服务端（路线 B） |
 | --- | --- | --- |
-| 系统 | Windows 10 / 11 | 任意（Linux / macOS / Windows / 容器） |
+| 系统 | 任意（Windows / macOS / Linux） | 任意（Linux / macOS / Windows / 容器） |
 | 运行时 | Python 3.10+（3.9 实测也能跑） | Python 3.10+ 或 Docker |
-| 模拟器 | MuMu 模拟器 12 / Pro | 不需要 |
-| App | QQ阅读，需登录自己的账号 | 不需要 |
-| 权限 | 模拟器内开启 ROOT | 无特殊要求 |
-| 网络 | 能访问 App 即可 | 采集端能访问到它 |
+| 网络 | 能访问 `commontgw.reader.qq.com` 即可 | 采集端能访问到它 |
+| 模拟器 / App / ROOT | **都不需要**（只有退回模拟器方案时才要） | 不需要 |
 
 ---
 
-## 第一次：把模拟器配好
+## 第一次：确认能采集
 
-只做一次，三件事：
+只做一次，两件事：
 
-1. **装 MuMu + QQ阅读，登录自己的账号。** 打开 App → 书城 → 排行榜，确认能进去
-   （脚本会自己导航到这一步，但不是每次都能绕开 App 的引导弹窗，先手动确认一次最稳）。
-2. **开 ROOT**：设置中心 → 其他 → ROOT 权限 → 打开 → **重启模拟器**。采集要读 App 私有目录。
-   同时在设置里确认「**ADB 调试**」是开的，不开连设备都找不到。
-3. **双击 `③ 环境自检.bat`**，看到全绿就行：
+1. **确认这台机器能上网**，浏览器能打开 <https://qq.com> 就行（公司网络要走代理的话，
+   给 Python 配上 `HTTPS_PROXY` 环境变量）。
+2. **双击 `③ 环境自检.bat`**，看到「接口连通 OK」就齐了：
 
 ```
-[OK]  Python 3.13.14（只用标准库，无需 pip 安装任何东西）
-[OK]  ADB：D:\Program Files\Netease\MuMu\nx_device\15.0\shell\adb.exe
-[OK]  模拟器实例0  127.0.0.1:16384  已启动
-[OK]  设备：127.0.0.1:16384（V2364A）
-[OK]  root 权限：有（可以读 App 的缓存库）
-[OK]  QQ阅读：已安装
-[OK]  榜单缓存库：存在 496K
-[OK]  分辨率：1080x1920（与采集脚本完全一致）
-全部就绪，可以开始采集。
+Python      3.13.14（C:\...\python.exe）
+采集脚本    C:\...\collector\api_rank.py
+榜单配置    2 个榜单 / 19 个数据集（内置表）
+接口地址    https://commontgw.reader.qq.com/v7_6_6/listDispatch
+接口连通    OK  0.2 秒，返回 1 条（pageSize=1）
+本机服务    http://127.0.0.1:8765  未运行（TimeoutError）
+
+结论：可以采集，直接跑 python collector/api_rank.py
 ```
 
-自动探测失败时，把路径填进 `config.json` 的 `adb` 字段即可。屏幕分辨率不需要改，
-采集脚本里的坐标会按实际分辨率自动缩放。
+「本机服务 未运行」是正常的——自检时你还没双击 `① 看榜单.bat`。
+
+接口哪天不通了，先看 `python collector/api_rank.py --list` 能不能打出榜单 id；
+如果 id 变了（App 改版会换），把新的填进 `collector/rank_cids.json` 覆盖内置表即可。
 
 ---
 
 ## 采集
 
 ```bash
-python collector/collect.py                 # 两个榜都采，采完上报
-python collector/collect.py 会员榜           # 只采一个榜
-python collector/collect.py --check         # 只自检
-python collector/collect.py --no-upload     # 只落盘到 data/raw，不上报
-python collector/collect.py --no-wake       # 模拟器没开时不要自动拉起
+python collector/api_rank.py                 # 两个榜都采，约 10 秒，采完自动入库
+python collector/api_rank.py 会员榜           # 只采一个榜
+python collector/api_rank.py --check         # 只自检（网络 / 接口 / 本机服务）
+python collector/api_rank.py --list          # 打印榜单 id 表，不改数据
+python collector/api_rank.py --no-upload     # 只落盘到 data/raw，不入库
+python collector/api_rank.py --push http://1.2.3.4:8765   # 推到别的机器
 ```
 
-一轮 23 个分类约 3 分钟，中途别动模拟器。采集结果存两份：
-`data/raw/*.json`（原始响应，可重放）和数据库里的当前快照。
-
+采集结果存两份：`data/raw/*.json`（原始响应，可重放）和数据库里的当前快照。
 三种触发方式等价：命令行、双击 `② 采集数据.bat`、看板右上角「立即采集」。
 
-模拟器没开时脚本会自己调 `MuMuManager` 拉起实例（等 adb 就绪再继续，约 1 分钟）。
+后端没起来时采集不算失败：数据照样落盘，脚本会提示你先双击 `① 看榜单.bat`，
+再用 `python collector/push.py data/raw/xxx.json` 补推。
 
 **采集原理（改脚本前先看一眼）**
 
-QQ阅读 的榜单数据会被 App 缓存两层：内存里一份、`http_cache` 表里一份。
-只删表不重启进程没用（内存还热着）；只重启不清表也没用（表里还有旧响应）。
-所以脚本对每个榜单都是「清 `http_cache` 里的榜单响应 → force-stop 重启 App →
-进排行榜 → 逐个分类点一遍 → 从表里把这一批新响应全部捞出来」。
+抓包定位到的就是 App 自己用的那个接口，明文 GET，无签名无登录：
 
-另外两条经验：
+```
+GET https://commontgw.reader.qq.com/v7_6_6/listDispatch
+    ?actionId=516604&action=rank&actionTag=boy&pagestamp=1&pageSize=200&rankFlag=1&cateId=0
+```
 
-- 横滑切分类的手势要落在**标签条下方的书目区**（y≈319），滑在标签条上只会让标签条滚动；
-- App 切某个分类时会把邻近分类一起预取，所以一次点击往往能带回好几个分类，
-  脚本是「点一下、把新到的全收下」，而不是一个分类死等一次响应。
+每个 `actionId` 对应一个榜单或分类子榜（`516604` 是会员榜全部，`533292` 是会员榜-玄幻，
+`535331` 是新书榜全部……），完整表在 `collector/api_rank.py` 的 `DEFAULT_CIDS`。
+`pagestamp=2` 返回空，说明一页 200 条就是全量，不用翻页。
+
+响应里的 `bookList` 字段（`bid` / `title` / `author` / `catel2name` / `totalWords` /
+`lastChapter` / `num` / `free` / `vipstatus` / `sellWords` / `updateTime`）与 App 缓存里
+缓存的一模一样，所以这条路和模拟器方案采出来的数据逐本一致。
+
+接口是明文的，但请求会走 TLS，且 Dart 侧的请求绕过系统代理——当初是用设备上的
+`tcpdump` 抓 ClientHello 的 SNI 找到 `commontgw.reader.qq.com`，再把流量 DNAT 到
+mitmproxy 才看到明文体。**普通使用不需要任何这些操作**，只有接口改版要重新定位时才用得上。
+
+### 备选：模拟器方案
+
+接口哪天加了校验，就切回老路子（Windows + MuMu + ROOT + QQ阅读 登录）：
+
+```bash
+WB_COLLECT_SCRIPT=collector/collect.py python backend/server.py   # 让网页按钮走模拟器
+python collector/collect.py --check      # adb / root / App / 缓存库 自检
+python collector/collect.py              # 两个榜都采，约 3 分钟，采完上报
+```
+
+原理是「让 App 自己请求，再从它本地缓存里把响应读回来」：清 `http_cache` 里的榜单响应 →
+force-stop 重启 App → 进排行榜 → 逐个分类点一遍 → 把这一批新响应捞出来。
+两条经验：横滑切分类的手势要落在**标签条下方的书目区**（y≈319），滑在标签条上只会滚标签；
+App 切某个分类时会预取邻近分类，所以脚本是「点一下、把新到的全收下」。
 
 ### 加入书架人数（详情补采）
 
 榜单接口只返回 `num`（榜单热度），**不是**「加入书架」人数。真正的书架数在书籍详情页，
-所以 `collect.py` 跑完会自动接一段 `detail.py`，只补库里还没有这个数的书（一般几十秒）：
+由 `detail.py` 单独补（可选，不跑也能用，只是那一栏空着）。模拟器方案的 `collect.py`
+跑完会自动接一段；接口方案的 `api_rank.py` 只跑 10 秒，所以详情要自己按需补：
 
 ```bash
 python collector/detail.py                  # 补缺的
@@ -237,9 +273,9 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 
 ```json
 {
-  "adb": "",                    // adb.exe 完整路径，留空自动探测
-  "serial": "",                 // 设备序列号，如 127.0.0.1:16384，留空自动找
-  "base_size": [1080, 1920],    // 坐标基准分辨率，一般不用改
+  "adb": "",                    // 仅模拟器方案：adb.exe 完整路径，留空自动探测
+  "serial": "",                 // 仅模拟器方案：设备序列号，如 127.0.0.1:16384
+  "base_size": [1080, 1920],    // 仅模拟器方案：坐标基准分辨率，一般不用改
   "boards": ["会员榜", "新书榜"]  // 默认采集的榜单
 }
 ```
@@ -258,7 +294,7 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 | `WB_ALLOW_COLLECT` | 本机自动判断 | 是否允许网页触发采集，`0` 关 / `1` 开 |
 | `WB_AUTO_COLLECT` | 未设 | `0` 启动不采；`1` 每次启动都采；不设则空库或超时才采 |
 | `WB_AUTO_COLLECT_AGE` | `6` | 「超时」的阈值，单位小时 |
-| `WB_COLLECT_SCRIPT` | `collector/collect.py` | 网页触发采集时执行的脚本 |
+| `WB_COLLECT_SCRIPT` | `collector/api_rank.py` | 网页触发采集时执行的脚本；换回模拟器就填 `collector/collect.py` |
 | `WB_PUSH` | `http://127.0.0.1:8765` | 采集端上报地址（`push.py` 读） |
 
 `WB_TOKEN` 同时也是采集端的口令变量，两个角色共用一个名字：服务端用它做校验基准，
@@ -298,7 +334,7 @@ POST /api/collect/cancel                  中止
 | 表 | 说明 |
 | --- | --- |
 | `boards` | 会员榜 / 新书榜，各自的 cid 和排序说明 |
-| `categories` | 23 个分类子榜，每个都是 App 真实请求回来的独立榜单 |
+| `categories` | 19 个分类子榜（会员榜 10 + 新书榜 9），每个都是 App 真实请求回来的独立榜单 |
 | `books` | 书目维表，`bid` 主键，同一本书在多个分类里只存一份简介；`shelf`/`fans`/`score` 来自详情页 |
 | `entries` | 当前在榜记录，`(榜单, 分类, 书)` 唯一，存名次与指标 |
 | `runs` | 采集日志（什么时候采的、多少条），删了不影响数据 |
@@ -355,29 +391,29 @@ curl -O https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js
 
 ## 常见问题
 
-**Q：采集报「没有 root」**
-模拟器设置里打开 ROOT 开关后**必须重启模拟器**，`adb root` 才会生效。
+**Q：`③ 环境自检.bat` 说「接口连通 ✗」**
+先确认浏览器能不能打开 <https://qq.com>。要走代理的机器给 Python 设 `HTTPS_PROXY`，
+或者检查防火墙是否拦了 443。接口本身不需要登录，能上网就能采。
 
-**Q：自检说「没连上任何设备」**
-先看 MuMu 设置里的「ADB 调试」开关。刚冷启动的实例常见情况是：虚拟机 20 秒就显示启动完成，
-但 `pm` / `getprop` 还要一两分钟才响应，等一会儿重跑自检就好。
+**Q：以前能采，今天一条都采不到**
+多半是 `actionId` 变了（App 大版本改版会换）。用 `python collector/api_rank.py --list`
+看着是通的，就把新 id 填进 `collector/rank_cids.json`——格式与 `api_rank.py` 里的
+`DEFAULT_CIDS` 一样，会整体覆盖内置表。定位新 id 的办法：模拟器里打开对应分类，
+抓一次请求看 `actionId`。
 
-**Q：QQ阅读 更新后一条都采不到**
-采集靠点击坐标导航（分类标签条在 y≈319 附近）。App 改版会让坐标失效，现象是**静默采到 0 条**，
-不报错。处理办法是拿新版本的截图重新标定 `collector/collectors/qqreader_app.py` 里的坐标常量。
-
-**Q：采集卡在某个分类**
-App 命中内存缓存时不会重新请求，脚本会 `am force-stop` 重启再补。偶尔需要手点一下排行榜页。
+**Q：采集卡在某个分类 / 只回了几条**
+接口那边偶发超时，脚本自带 3 次重试。还不行就单独采这个榜：
+`python collector/api_rank.py 会员榜`，日志会打印每个分类的条数与失败原因。
 
 **Q：网页上一片空白 / 报「数据库里还没有榜单数据」**
-库里没数据。跑一次 `python collector/collect.py`，或 `python backend/tools/import_legacy.py` 导入已有 json。
+库里没数据。跑一次 `python collector/api_rank.py`，或 `python backend/tools/import_legacy.py` 导入已有 json。
 
 **Q：采集到一半断了，库里会不会只剩半份数据？**
 不会。入库在一个事务里完成，中途失败整体回滚，库里仍是上一份完整数据。
 
 **Q：服务器上「立即采集」按钮是灰的**
-正常。`collect_enabled()` 要求「本机 + Windows + 采集脚本存在」三条同时成立，
-服务器上不满足，按钮就该禁用。数据用 `collect.py --push` 推过去。
+正常。`collect_enabled()` 要求「服务跑在本机 + 采集脚本存在」，部署到服务器上不满足，
+按钮就该禁用。数据用 `api_rank.py --push http://服务器:8765` 推过去。
 
 **Q：端口 8765 被占用**
 `server.py` 会自动往后试 12 个端口，启动日志里会打印实际地址。想固定就 `--port` 或 `WB_PORT`。
@@ -394,8 +430,8 @@ App 命中内存缓存时不会重新请求，脚本会 `am force-stop` 重启�
 ## 说明与边界
 
 - 采集对象是 QQ阅读 **公开可见的榜单数据**，不涉及登录凭据、不读取用户隐私内容。
-  请用你自己的账号，控制采集频率（一轮 3 分钟，日常几小时一次足够），
-  频繁触发 `force-stop` 重启对账号和 App 都没好处。
+  接口无签名，但请自觉控制频率：一轮 10 秒、19 个请求，日常几小时一次足够，
+  别写循环去压它。
 - 项目仅供个人研究与选题参考，请遵守 QQ阅读 的用户协议，不要用于商业转载或数据倒卖。
 - 榜单口径、分类划分都归平台方所有，本项目只做本地留存与展示。
-- `rev/`、`_qqreader/`、`_legacy/` 是开发期留下的调试资料，不在仓库内，与运行无关。
+- `rev/`、`_qqreader/`、`_legacy/`、`_scan/` 是开发期留下的调试资料，不在仓库内，与运行无关。

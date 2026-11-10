@@ -99,7 +99,7 @@
               <el-button size="small" plain @click="cancelPull">中止</el-button>
             </div>
             <el-progress :percentage="progPct" :stroke-width="6" :show-text="false" class="prog-bar"></el-progress>
-            <p class="prog-tip">首次运行会自动抓取 QQ阅读 最新榜单，23 个分类约 3 分钟，中途别操作模拟器。</p>
+            <p class="prog-tip">{{ progTip }}</p>
             <pre v-if="prog.lines.length" class="prog-log">{{ prog.lines.join('\n') }}</pre>
           </el-card>
 
@@ -108,7 +108,7 @@
                      :sub-title="emptyHint">
             <template #extra>
               <el-button v-if="collectEnabled" type="primary" @click="pullData">开始采集</el-button>
-              <el-button v-else type="primary" plain @click="showEnvHelp">怎么接上模拟器</el-button>
+              <el-button v-else type="primary" plain @click="showEnvHelp">怎么跑采集</el-button>
             </template>
           </el-result>
         </div>
@@ -118,7 +118,7 @@
           <section class="hero">
             <div class="hero-txt">
               <h1>QQ阅读 · 实时榜单监控</h1>
-              <p>com.qq.reader · Android 15 · MuMu 模拟器</p>
+              <p>com.qq.reader · 榜单接口直连 · 无需模拟器</p>
               <div class="hero-tags">
                 <el-tag effect="light" round>按分类整榜覆盖</el-tag>
                 <el-tag effect="light" round type="success">只保留最新一版</el-tag>

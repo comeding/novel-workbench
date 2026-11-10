@@ -16,8 +16,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo   启动服务…库里没数据时会自动去 QQ阅读 抓一轮最新榜单，
-echo   页面会显示采集进度（约 3 分钟），不用另外点。
+echo   启动服务…库里没数据或数据超过 6 小时，会自动去 QQ阅读 抓一轮，
+echo   页面会显示采集进度（约 10 秒），不用另外点。窗口别关。
 echo.
 python backend\server.py
 if errorlevel 1 (

@@ -29,10 +29,10 @@
 
 采集机上需要：
 
-- 按 [QUICKSTART.md](QUICKSTART.md) 路线 A 配好环境，能单独跑通 `python collector\collect.py`
+- 按 [QUICKSTART.md](QUICKSTART.md) 路线 A 配好环境，能单独跑通 `python collector\api_rank.py`
 - 能访问到服务器的地址（局域网 IP 或域名）
 
-> 顺序很重要：**先在采集机上把 `collect.py` 跑通，再来配服务器**。
+> 顺序很重要：**先在采集机上把 `api_rank.py` 跑通，再来配服务器**。
 > 反过来做，出问题时你分不清是采集坏了还是推送坏了。
 
 ---
@@ -95,11 +95,11 @@ curl http://127.0.0.1:8765/api/health
 `/api/health` 返回类似：
 
 ```json
-{"ok": true, "service": "novel-workbench", "python": "3.12.7",
- "port": 8765, "collect_enabled": false, "db": "/data/workbench.db"}
+{"ok": true, "service": "novel-workbench", "python": "3.12.7", "port": 8765,
+ "collect_enabled": false, "collect_mode": "api", "db": "/data/workbench.db"}
 ```
 
-`collect_enabled: false` 是对的，说明网页采集按钮已禁用（服务器上没有模拟器）。
+`collect_enabled: false` 是对的，说明网页采集按钮已禁用（容器里没有采集脚本）。
 
 ### 5. 看日志
 
@@ -126,8 +126,8 @@ docker compose logs -f --tail 50
 
 ### 关于环境变量
 
-`docker-compose.yml` 里写死了 `WB_ALLOW_COLLECT: "0"`，这是刻意的：容器里没有 ADB，
-也没有模拟器，允许触发采集只会得到一个失败的后台进程。不要改这一项。
+`docker-compose.yml` 里写死了 `WB_ALLOW_COLLECT: "0"`，这是刻意的：容器里没有 `collector/`
+目录，允许触发采集只会得到一个失败的后台进程。不要改这一项。
 
 想换宿主机端口，改 `.env` 的 `WB_PORT`，容器内部始终是 8765。
 
@@ -290,7 +290,7 @@ auth_basic_user_file /etc/nginx/.htpasswd;
 注意这会影响采集端上报。用基础认证后，上报要带上凭据：
 
 ```bash
-python collector/collect.py --push https://用户名:密码@rank.example.com
+python collector/api_rank.py --push https://用户名:密码@rank.example.com
 ```
 
 或者换一种更干净的做法：只对读接口加认证，放行写接口，写接口靠 `X-Token` 保护。
@@ -311,7 +311,7 @@ location /            { auth_basic "Novel Workbench"; auth_basic_user_file /etc/
 ### 方式一：命令行参数
 
 ```bat
-python collector\collect.py --push https://rank.example.com --token 你的口令
+python collector\api_rank.py --push https://rank.example.com --token 你的口令
 ```
 
 ### 方式二：环境变量（推荐，配一次长期有效）
@@ -324,7 +324,7 @@ setx WB_TOKEN 你的口令
 `setx` 写的是用户环境变量，新开一个窗口生效。之后只要：
 
 ```bat
-python collector\collect.py
+python collector\api_rank.py
 ```
 
 优先级：`--push` / `--token` 参数 > `WB_PUSH` / `WB_TOKEN` 环境变量 > 默认本机地址。
@@ -464,7 +464,7 @@ CORS 是所有来源都放开的（`Access-Control-Allow-Origin: *`），这是�
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | 容器 `unhealthy` | `/api/health` 不通 | `docker compose logs` 看报错；多半是 `data/` 权限或端口被占 |
-| 页面能开但没有数据 | 还没推送过 | 采集端跑 `collect.py --push`，或 `import_legacy.py` |
+| 页面能开但没有数据 | 还没推送过 | 采集端跑 `api_rank.py --push`，或 `import_legacy.py` |
 | 上报返回 413 | Nginx 默认 1MB 限制 | `client_max_body_size 50m` |
 | 上报返回 401 | 口令不一致 | 对比服务端 `data/.token` 和采集端 `WB_TOKEN` |
 | 上报成功但页面没变 | 浏览器缓存了 `/api/dataset` | 强刷；接口本身是 `no-store` |
@@ -479,7 +479,7 @@ CORS 是所有来源都放开的（`Access-Control-Allow-Origin: *`），这是�
 ```bash
 python backend/server.py                  # 起服务并打开浏览器
 python backend/server.py --no-open        # 只起服务
-python collector/collect.py --check       # 只自检
+python collector/api_rank.py --check       # 只自检
 ```
 
 改前端不用重启服务：静态文件是每次请求现读的，改完刷新页面就行。

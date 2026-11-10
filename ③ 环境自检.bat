@@ -13,6 +13,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-python collector\collect.py --check
+python collector\api_rank.py --check
 echo.
 pause

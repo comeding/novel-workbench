@@ -31,23 +31,36 @@ class Config:
     ALLOW_COLLECT = _collect_env in ("1", "true", "yes") if _collect_env else None
 
     # 采集脚本位置（触发采集时用）
-    COLLECT_SCRIPT = _path("WB_COLLECT_SCRIPT", os.path.join("collector", "collect.py"))
+    # 默认走 app_api 版：直接请求 App 的榜单接口，不依赖模拟器与 adb，
+    # 跨平台、8 秒采完 19 个数据集。想回到模拟器方案就设：
+    #   WB_COLLECT_SCRIPT=collector/collect.py
+    COLLECT_SCRIPT = _path("WB_COLLECT_SCRIPT", os.path.join("collector", "api_rank.py"))
 
     # 数据超过这么久（小时）就在启动时自动补一轮；默认 6
     AUTO_COLLECT_AGE = float(os.environ.get("WB_AUTO_COLLECT_AGE") or 6) * 3600
 
     @classmethod
+    def api_mode(cls):
+        """是否使用直连接口采集（无需模拟器）。
+
+        模拟器方案（collect.py）依赖 Windows + MuMu + adb；接口方案
+        （api_rank.py）只发 HTTP 请求，任何系统都能跑。
+        """
+        return os.path.basename(cls.COLLECT_SCRIPT) in ("api_rank.py", "h5_rank.py")
+
+    @classmethod
     def collect_enabled(cls):
         """能不能在这台机器上真采。
 
-        采集器依赖 Windows 上的 MuMu + adb，所以「本机」还不够，
-        必须是 Windows 且有采集脚本，否则页面按钮会误导人。
+        模拟器方案要求「本机 + Windows + 脚本存在」；接口方案只要求
+        「本机 + 脚本存在」，所以 Linux / macOS 也能在页面上点采集。
         """
         if cls.ALLOW_COLLECT is not None:
             return cls.ALLOW_COLLECT
-        return (cls.HOST in ("127.0.0.1", "localhost")
-                and sys.platform == "win32"
-                and os.path.exists(cls.COLLECT_SCRIPT))
+        if not (cls.HOST in ("127.0.0.1", "localhost")
+                and os.path.exists(cls.COLLECT_SCRIPT)):
+            return False
+        return cls.api_mode() or sys.platform == "win32"
 
     @classmethod
     def auto_collect(cls, entries=0, collected_at=""):

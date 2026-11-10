@@ -111,7 +111,9 @@ def ingest(payload):
             # 所以按分类替换，并区分「部分采集」和「完整重采」。
             old_cats = {r["name"] for r in con.execute(
                 "SELECT name FROM categories WHERE board_key = ?", (key,))}
-            full = len(cats) >= len(old_cats)
+            # 采集器说这轮是该榜的全量（接口方案会带上 "full": true），就按全量处理；
+            # 没说的按条数猜——够数就算全量，少一个都当作「部分采集」。
+            full = bool(binfo.get("full")) or len(cats) >= len(old_cats)
             if full:
                 # 完整重采：本次没出现的分类视为已在 App 里下线，一并清掉
                 for stale in old_cats - set(cats):

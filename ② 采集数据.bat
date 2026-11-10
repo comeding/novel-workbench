@@ -13,15 +13,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo   采集中，别去动模拟器。中途要停就按 Ctrl+C。
-echo   模拟器没开的话脚本会自己拉起来，采完自动入库，看板刷新就是新数据。
+echo   直接请求 QQ阅读 榜单接口，不用模拟器，一轮约 10 秒。
+echo   中途要停就按 Ctrl+C。采完自动入库，看板刷新就是新数据。
 echo   只想采一个榜：② 采集数据.bat 会员榜
 echo.
 
-python collector\collect.py %*
+python collector\api_rank.py %*
 echo.
 if errorlevel 1 (
-  echo [x] 采集没成功，按上面的提示处理后重试。
+  echo [x] 采集没成功，先跑「③ 环境自检.bat」看是哪一步不通。
 ) else (
   echo [ok] 采集完成。
 )
