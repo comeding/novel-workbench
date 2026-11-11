@@ -5,9 +5,13 @@
 容器里既没有 git 仓库、也没有 docker 权限，自己没法拉代码、更没法重建自己。
 所以把「动代码」的活交给宿主机上的一个零依赖小服务，页面只负责下令和看进度。
 
-它监听 127.0.0.1:8766（只本机可达，不对外暴露），页面同源代理过来调。
+它默认监听 127.0.0.1:8766（只本机可达）。加了 --lan 就监听所有网卡，
+让看板后端（跑在容器里）能代浏览器把请求转发进来——这样别人在自己电脑上
+打开看板，点「立即更新部署」也能生效。跨机器的请求必须带口令，
+口令与看板共用 data/.token，不会多出一份要维护的东西。
 
-    python dev/agent.py                 # 前台跑，Ctrl+C 停
+    python dev/agent.py                 # 前台跑，Ctrl+C 停（只服务本机页面）
+    python dev/agent.py --lan           # 允许看板后端代转发（远程也能点更新）
     python dev/agent.py --interval 30   # 顺带每 30 分钟自动检查一次
     python dev/agent.py --install       # 注册开机自启（Windows 计划任务）
     python dev/agent.py --uninstall     # 取消开机自启
@@ -15,6 +19,7 @@
 Windows 上双击「⑤ 版本服务.bat」等价于第一条。
 """
 
+import hmac
 import json
 import os
 import platform
@@ -49,6 +54,46 @@ def opt(name, cast=str, default=None):
                 return default
     return default
 
+
+def _read_env_file():
+    """读项目根的 .env。
+
+    宿主脚本拿不到 compose 注入的 WB_TOKEN，但读得到这个文件。
+    口令两边必须对上，否则容器里的代理会被这里拒掉。
+    """
+    out = {}
+    try:
+        with open(os.path.join(updater.ROOT, ".env"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def token():
+    """口令优先级：WB_AGENT_TOKEN > .env 里的 WB_TOKEN > data/.token。
+
+    和看板后端的 get_token() 落到同一个值——容器里的代理请求
+    带着它过来，这里认，才允许重建容器。
+    """
+    v = (os.environ.get("WB_AGENT_TOKEN") or "").strip()
+    if not v:
+        v = _read_env_file().get("WB_TOKEN", "").strip()
+    if not v:
+        try:
+            with open(os.path.join(updater.DATA, ".token"), encoding="utf-8") as f:
+                v = f.read().strip()
+        except OSError:
+            v = ""
+    return v
+
+
+TOKEN = token()
 
 LOCK = threading.Lock()
 JOB = {"running": False, "action": "", "started_at": "", "elapsed": 0,
@@ -268,6 +313,22 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return host.endswith(".local")
 
+    def _is_local(self):
+        return self.client_address[0] in ("127.0.0.1", "::1")
+
+    def _token_ok(self):
+        """有口令就一律校验，没有才退回「只服务本机」。
+
+        为什么不按来源放行：Docker Desktop 把容器访问宿主的源地址 NAT 成
+        127.0.0.1，按来源判断等于「本机任何容器都免检」，口令形同虚设。
+        所以只要 data/.token（或 WB_TOKEN）有值，就必须带对 X-Token——
+        看板后端转发时会自动带上，页面不用知道口令长什么样。
+        """
+        if not TOKEN:
+            return self._is_local()       # 还没口令：只服务本机页面
+        got = (self.headers.get("X-Token") or "").strip()
+        return hmac.compare_digest(got, TOKEN)
+
     def _cors(self):
         origin = self.headers.get("Origin") or "*"
         self.send_header("Access-Control-Allow-Origin", origin if origin != "*" else "*")
@@ -297,15 +358,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path in ("/", "/api/state", "/health"):
-            return self._json(state())
         if path == "/api/ping":
             return self._json({"ok": True, "pid": os.getpid()})
+        if not self._token_ok():
+            return self._json({"ok": False, "error": "需要口令（X-Token）"}, 401)
+        if path in ("/", "/api/state", "/health"):
+            return self._json(state())
         return self._json({"ok": False, "error": "没有这个接口"}, 404)
 
     def do_POST(self):
         if not self._origin_ok():
             return self._json({"ok": False, "error": "来源不被允许"}, 403)
+        if not self._token_ok():
+            return self._json({"ok": False, "error": "需要口令（X-Token）"}, 401)
         path = self.path.split("?")[0]
         length = int(self.headers.get("Content-Length") or 0)
         try:
@@ -343,8 +408,10 @@ def install_task():
         say("")
         say("  ~/.config/systemd/user/novel-agent.service")
         say("  [Unit]\\n  Description=novel-workbench updater\\n"
-            "  [Service]\\n  ExecStart=%s %s\\n  Restart=always\\n"
-            "  [Install]\\n  WantedBy=default.target" % (sys.executable, os.path.abspath(__file__)))
+            "  [Service]\\n  ExecStart=%s %s%s\\n  Restart=always\\n"
+            "  [Install]\\n  WantedBy=default.target"
+            % (sys.executable, os.path.abspath(__file__),
+               " --lan" if "--lan" in argv else ""))
         say("")
         say("  systemctl --user enable --now novel-agent")
         return 1
@@ -353,13 +420,15 @@ def install_task():
     if os.path.exists(pyw):
         exe = pyw                       # 用 pythonw 跑，不弹黑窗口
     cmd = ['schtasks', '/create', '/tn', TASK, '/sc', 'onlogon',
-           '/tr', '"%s" "%s"' % (exe, os.path.abspath(__file__)), '/f']
+           '/tr', '"%s" "%s"%s' % (exe, os.path.abspath(__file__),
+                                   " --lan" if "--lan" in argv else ""), '/f']
     code, out = updater.sh(cmd, cwd=updater.ROOT, capture=True)
     if code != 0:
         say("注册失败：%s" % (out or "schtasks 返回 %d" % code))
         say("  可能需要以管理员身份运行一次，或手动把它拖进「启动」文件夹。")
         return 1
-    say("已注册开机自启：%s（登录后自动在后台运行）" % TASK)
+    say("已注册开机自启：%s（登录后自动在后台运行%s）"
+        % (TASK, "，允许看板后端代转发" if "--lan" in argv else "，只服务本机页面"))
     say("取消：python dev/agent.py --uninstall")
     return 0
 
@@ -382,6 +451,8 @@ def main():
 
     PORT = opt("--port", int, PORT) or PORT
     host = opt("--host", str, HOST) or HOST
+    if "--lan" in argv and "--host" not in argv:
+        host = "0.0.0.0"
     load_cfg()
     if opt("--interval", int):
         AUTO["enabled"] = True
@@ -391,6 +462,13 @@ def main():
     say("")
     say("  仓库      %s" % updater.ROOT)
     say("  监听      http://%s:%d" % (host, PORT))
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        say("  口令      %s" % ("已就绪（与看板共用 data/.token）" if TOKEN
+                              else "⚠ 没有口令，跨机器的请求会被拒绝"))
+        say("            看板后端会把请求代转发到这里，浏览器不用直连本端口。")
+    else:
+        say("  口令      %s" % ("已就绪" if TOKEN else "无（只服务本机页面）"))
+        say("  提示      用 Docker 部署时加 --lan：容器走虚拟网关，127.0.0.1 收不到。")
     if not updater.is_repo():
         say("  ⚠ 这个目录不是 git 仓库，只能看版本、不能更新")
     st = updater.status(fetch=False)
@@ -398,7 +476,9 @@ def main():
     say("  自动更新  %s（间隔 %d 分钟）"
         % ("开" if AUTO["enabled"] else "关", AUTO["interval_min"]))
     say("")
-    say("  页面：左侧菜单「版本控制」。Ctrl+C 停止。")
+    say("  页面：左侧菜单「版本控制」。从任何电脑打开看板都能点更新——")
+    say("        看板后端会把请求代转发到这个服务，不需要暴露 %d 端口。" % PORT)
+    say("  Ctrl+C 停止。")
     say("")
 
     global STATUS

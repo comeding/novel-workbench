@@ -90,10 +90,11 @@
           </el-button>
         </div>
         <div class="right" v-else>
-          <el-tag size="large" effect="plain" round class="chip" :type="ver.online ? 'success' : 'info'">
-            {{ ver.online ? '更新服务已连接' : '更新服务未连接' }}
+          <el-tag size="large" effect="plain" round class="chip"
+                  :type="ver.online ? 'success' : (ver.waiting ? 'warning' : 'info')">
+            {{ ver.online ? '更新服务已连接' : (ver.waiting ? '等待服务重启…' : '更新服务未连接') }}
           </el-tag>
-          <el-button plain @click="loadVer">
+          <el-button plain :disabled="ver.waiting" @click="loadVer">
             <el-icon><refresh></refresh></el-icon>刷新状态
           </el-button>
         </div>
@@ -164,7 +165,8 @@
                   <div class="vr"><span>上次自动更新</span><b>{{ ver.auto.last_run || '从未' }}</b></div>
                   <div class="vr"><span>更新服务</span>
                     <b :class="ver.online ? 'ok' : 'warn'">
-                      {{ ver.online ? '运行中 · pid ' + (ver.agent.pid || '—') : '没在跑' }}
+                      {{ ver.online ? '运行中 · pid ' + (ver.agent.pid || '—')
+                         : (ver.waiting ? '重建中，等它回来' : '没在跑') }}
                     </b>
                   </div>
                   <div class="vr"><span>部署位置</span><b class="mono ell">{{ vst.root || '—' }}</b></div>
@@ -177,12 +179,14 @@
               </el-card>
             </div>
 
-            <el-alert v-if="!ver.online" type="warning" :closable="false" show-icon class="ver-alert"
+            <el-alert v-if="!ver.online && !ver.waiting" type="warning" :closable="false" show-icon class="ver-alert"
                       title="宿主更新服务没启动，这个页面上点不了更新">
-              <div class="ver-cmd">python dev/agent.py</div>
+              <div class="ver-cmd">python dev/agent.py --lan</div>
               <div class="ver-note">
-                在项目目录里跑上面这条（Windows 双击「⑤ 版本服务.bat」）。想开机自启：<code>python dev/agent.py --install</code>。<br>
-                从别的电脑打开这个页面时连不上是正常的——更新只能在本机执行。
+                在跑看板的<b>那台机器</b>上，进项目目录执行上面这条（Windows 双击「⑤ 版本服务.bat」）。<br>
+                <code>--lan</code> 是给远程用的：看板后端会代浏览器把请求转给它，不用暴露 8766 端口。<br>
+                想开机自启：<code>python dev/agent.py --lan --install</code>。
+                <div v-if="ver.err" style="margin-top:6px;color:#c4562f">诊断：{{ ver.err }}</div>
               </div>
             </el-alert>
 

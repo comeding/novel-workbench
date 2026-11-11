@@ -60,7 +60,9 @@
         verTimer: null,
         ver: {
           online: false,
+          waiting: false,          /* 更新中容器在重建，这一两轮轮询失败属正常 */
           loaded: false,
+          err: '',
           agent: {},
           st: {},
           auto: { enabled: false, interval_min: 60 },
@@ -207,8 +209,9 @@
 
       verSub() {
         const s = this.vst;
-        if (!s.branch) return this.ver.online ? '正在读取…' : '更新服务没连上，下面是上次看到的版本';
-        return [s.branch, s.date, s.subject].filter(Boolean).join(' · ');
+        if (s.branch) return [s.branch, s.date, s.subject].filter(Boolean).join(' · ');
+        if (this.ver.waiting) return '容器正在重建，服务回来后自动刷新';
+        return this.ver.online ? '正在读取…' : '更新服务没连上，下面是上次看到的版本';
       },
 
       /* 侧边栏那个小圆点：落后几个提交就亮着，提醒该更新了 */
@@ -218,7 +221,11 @@
 
       verTag() {
         const s = this.vst;
-        if (!this.ver.online) return { type: 'info', text: '未连接' };
+        if (!this.ver.online) {
+          return this.ver.waiting
+            ? { type: 'warning', text: '服务重启中…' }
+            : { type: 'info', text: '未连接' };
+        }
         if (s.error) return { type: 'warning', text: '检查失败' };
         if (s.behind > 0) return { type: 'warning', text: '落后 ' + s.behind + ' 个提交' };
         if (s.dirty) return { type: 'info', text: '已是最新（有本地改动）' };
@@ -542,21 +549,41 @@
 
       async loadVer() {
         let s = null;
+        let err = '';
         try {
           s = await WBAPI.agentState();
         } catch (e) {
           s = null;
+          err = (e && e.message) || '';
         }
 
         if (s && s.ok) {
           this.ver.online = true;
+          this.ver.waiting = false;
+          this.ver.err = '';
+          this._verDownAt = 0;
           this.ver.agent = s.agent || {};
           this.ver.st = s.status || {};
           if (s.auto) Object.assign(this.ver.auto, s.auto);
           this.ver.job = Object.assign({ log: [] }, s.job || {});
           this.ver.server = s.local || {};
         } else {
+          /* 更新过程中容器正在重建，这几轮请求必然失败。
+           * 不能当成「执行器掉了」——否则进度和日志会突然消失，
+           * 看起来像更新把人踢了出去。等它回来，最多等 90 秒。 */
+          const j = this.ver.job || {};
+          const busy = j.running || (this._sawUpdate && !this._verReloaded);
+          if (busy) {
+            if (!this._verDownAt) this._verDownAt = Date.now();
+            if (Date.now() - this._verDownAt < 90000) {
+              this.ver.waiting = true;
+              this.scheduleVer(2000);
+              return;
+            }
+          }
           this.ver.online = false;
+          this.ver.waiting = false;
+          this.ver.err = err;
           /* 连不上执行器时退回后端缓存：至少能看到「上次检查到的版本」 */
           try {
             const v = await WBAPI.version();

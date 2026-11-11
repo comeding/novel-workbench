@@ -48,9 +48,10 @@ const WBAPI = (function () {
   }, 60000);
 
   /* ---------- 宿主更新服务（dev/agent.py） ----------
-   * 它不在这个域名下，而是本机的 127.0.0.1:8766：
-   * 容器里没有 git 和 docker 权限，拉代码、重建只能由宿主机来做。
-   * 页面从本机打开时能直连；从别的机器打开就是连不上，此时退回只读展示。
+   * 它跑在「看板宿主」上，容器里没有 git 和 docker 权限，拉代码、重建只能由它做。
+   * 页面统一请求同源的 /api/agent/*，由看板后端转给宿主——
+   * 浏览器里的 127.0.0.1 指的是「打开页面这台电脑」，别人远程看你的看板时
+   * 直连必然落空。所以代理优先，直连只作为老后端的兼容兜底。
    */
   const AGENT = (function () {
     const qs = new URLSearchParams(location.search);
@@ -58,11 +59,12 @@ const WBAPI = (function () {
     return base.replace(/\/+$/, '');
   })();
 
-  async function agent(path, opts, timeout) {
+  /* 直连用，绝对地址不经过 BASE 拼接 */
+  async function rawCall(url, opts, timeout) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout || 2500);
     try {
-      const res = await fetch(AGENT + path, {
+      const res = await fetch(url, {
         cache: 'no-store', signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json' }, ...opts
       });
@@ -78,6 +80,19 @@ const WBAPI = (function () {
       return data;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async function agent(path, opts, timeout) {
+    const t = timeout || 2500;
+    /* path 传的是 /api/xxx，代理前缀只留 /api/agent，不然拼成 /api/agent/api/xxx */
+    const proxied = '/api/agent' + path.replace(/^\/api/, '');
+    try {
+      return await request(proxied, opts, t);
+    } catch (e) {
+      /* 404 = 后端还是没代理路由的旧版，退回本机直连 */
+      if (e.status !== 404) throw e;
+      return await rawCall(AGENT + path, opts, t);
     }
   }
 
@@ -98,7 +113,9 @@ const WBAPI = (function () {
 
     version: () => get('/api/version', null, 6000),
     agentBase: AGENT,
-    agentState: () => agent('/api/state', {}, 2500),
+    /* 走的是看板后端代理，多一跳（浏览器 → 后端 → 宿主机），
+     * 2.5 秒在网络不好时不够用，给到 8 秒。 */
+    agentState: () => agent('/api/state', {}, 8000),
     agentCheck: () => agent('/api/check', { method: 'POST', body: '{}' }, 15000),
     agentUpdate: (force) => agent('/api/update', { method: 'POST', body: JSON.stringify({ force: !!force }) }, 15000),
     agentAuto: (body) => agent('/api/auto', { method: 'POST', body: JSON.stringify(body) }, 8000)
