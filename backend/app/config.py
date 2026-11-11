@@ -43,6 +43,11 @@ class Config:
     # 0 = 关闭（只靠启动时那一次）。容器里建议开着，否则不重启就一直吃老数据。
     COLLECT_EVERY = float(os.environ.get("WB_COLLECT_EVERY") or 0) * 3600
 
+    # 开发模式：前端静态资源一律 no-store。
+    # 生产默认给 .js/.css 一个小时的缓存，改完要强刷才看得到；
+    # 开发时（配合 docker-compose.dev.yml 的 bind mount）设 WB_DEV=1 省掉这一步。
+    DEV = os.environ.get("WB_DEV", "").strip().lower() in ("1", "true", "yes", "on")
+
     @classmethod
     def api_mode(cls):
         """是否使用直连接口采集（无需模拟器）。

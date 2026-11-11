@@ -66,7 +66,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             return self._api("GET", parsed, b"")
-        if parsed.path != "/" and not parsed.path.endswith(".html"):
+        # 开发模式下一律不缓存，免得改了 js 还要手动强刷
+        if not Config.DEV and parsed.path != "/" and not parsed.path.endswith(".html"):
             self._cache = "public, max-age=3600"
         return super().do_GET()
 

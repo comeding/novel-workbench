@@ -320,6 +320,7 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 | `WB_COLLECT_EVERY` | `0`（容器里 `6`） | 常驻时每几小时巡检一次，过期就补采；`0` 关闭 |
 | `WB_COLLECT_SCRIPT` | `collector/api_rank.py` | 网页触发采集时执行的脚本；换回模拟器就填 `collector/collect.py` |
 | `WB_PUSH` | `http://127.0.0.1:8765` | 采集端上报地址（`push.py` 读） |
+| `WB_DEV` | 未设 | `1` 时静态资源不缓存，配合 `docker-compose.dev.yml` 调试前端 |
 
 `WB_TOKEN` 同时也是采集端的口令变量，两个角色共用一个名字：服务端用它做校验基准，
 采集端用它作为请求凭据。

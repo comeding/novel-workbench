@@ -1,0 +1,21 @@
+# 开发模式：把代码目录 bind mount 进容器，改文件不用重建镜像。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 改哪里 → 怎么生效：
+#   frontend/   改完刷新浏览器（WB_DEV=1 已关掉静态缓存）
+#   backend/    改完 docker compose restart web（Python 没有热重载）
+#   collector/  改完直接重跑采集就行，每次都是新起子进程
+#
+# 只用于本地调试，别拿这套部署：Windows 文件系统做 bind mount 比镜像层慢，
+# 而且代码跟着磁盘走，容器就不再是「一个自包含的产物」了。
+services:
+  web:
+    volumes:
+      - ./data:/data
+      - ./backend:/app/backend
+      - ./collector:/app/collector
+      - ./frontend:/app/frontend
+    environment:
+      # 静态资源不缓存，避免改了 js 还看到旧页面
+      WB_DEV: "1"
