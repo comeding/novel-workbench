@@ -389,6 +389,24 @@ def save_cache():
 
 # ---------------------------------------------------------------- 对外
 
+def _live_head():
+    """实时读一次 HEAD。
+
+    STATUS 只有跑完 check / update 才刷新，页面要是只读它就永远差一拍：
+    代码已经 pull 下来了，标题还挂着上一个提交。这里只跑两条本地命令，
+    不进网络，几十毫秒的事。
+    """
+    code, out = _git(["log", "-1", "--format=%h%x1f%ci%x1f%s"])
+    if code != 0:
+        return {}
+    parts = out.split("\x1f")
+    if len(parts) != 3:
+        return {}
+    _, dirty = _git(["status", "--porcelain", "--untracked-files=no"])
+    return {"commit": parts[0], "short": parts[0], "subject": parts[2],
+            "date": parts[1][:16], "dirty": bool(dirty)}
+
+
 def state():
     with LOCK:
         job = dict(JOB)
@@ -398,12 +416,17 @@ def state():
         db_mb = round(os.path.getsize(db) / 1048576.0, 1)
     except OSError:
         db_mb = None
+    st = dict(STATUS)
+    try:
+        st.update(_live_head())      # 版本号 / 提交说明 / 工作区状态跟着 HEAD 走
+    except OSError:
+        pass
     return {
         "ok": True,
         "agent": {"online": True, "pid": os.getpid(), "started_at": STARTED,
                   "host": socket.gethostname(), "platform": platform.platform(),
                   "mode": MODE, "restart_cmd": ""},
-        "status": STATUS,
+        "status": st,
         "auto": dict(AUTO),
         "job": job,
         "local": {"python": platform.python_version(), "platform": platform.system(),
