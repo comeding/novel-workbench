@@ -119,25 +119,44 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 
 ### 更新到最新版
 
-```bash
-python dev/update.py        # Windows 双击「④ 更新代码.bat」
-```
+分两种身份看。
 
-问 GitHub → 拉代码 → 重建容器 → 重启 → 探活，一条命令走完。别人 clone 了你的仓库
-要更新也是这一条；`data/` 和 `.env` 都不在版本控制里，不会被覆盖。
-
-想看差几个版本、不想动任何东西：`python dev/update.py --check`。
-
-**不想碰命令行**就再开一个「版本服务」，页面左侧会多出「版本控制」：
+**你是使用者**——clone 别人的仓库，只部署不开发：
 
 ```bash
-python dev/agent.py         # Windows 双击「⑤ 版本服务.bat」
+git clone https://github.com/comeding/novel-workbench
+cd novel-workbench
+docker compose up -d
+python dev/agent.py --lan        # Windows 双击「⑤ 版本服务.bat」
 ```
 
-里面能看当前提交、落后几个版本、开关自动更新，点一下就能拉代码重建。
-它只监听本机 `127.0.0.1:8766`——容器里没有 git 和 docker 权限，
-真正动手的是宿主上的这个进程。`python dev/agent.py --install` 可注册开机自启。
+之后就不用再碰命令行了。浏览器打开 `http://127.0.0.1:8765`，左侧「版本控制」里
+有当前提交、落后几个提交、待更新的提交列表，点「立即更新部署」就拉代码重建重启。
+可以打开「自动更新」，按 30 分钟 / 1 小时 / 6 小时 / 每天自查一次，有新版自己装。
 
+`--lan` 不能省：页面上的按钮由看板后端转给这个进程，容器走的是虚拟网关，
+只听 `127.0.0.1` 是收不到的。想开机自启：`python dev/agent.py --lan --install`。
+
+**你是作者**——本地开发，改完推 GitHub：
+
+本地容器是挂载模式，改 `backend/` `frontend/` `collector/` 下的文件几秒内自动重启生效，
+不用重建、不用重开页面。开发完推送即可：
+
+```bash
+git add -A && git commit -m "..." && git push
+```
+
+别人的「检查更新」下次就会看到这个提交。只有改了 `Dockerfile`、依赖或顶层目录时，
+才需要 `docker compose up -d --build` 一次（页面点更新本来也会带 `--build`）。
+
+命令行等价物（不进页面时用）：
+
+```bash
+python dev/update.py           # 拉代码 → 重建 → 重启 → 探活
+python dev/update.py --check   # 只看差几个版本，什么都不动
+```
+
+`data/` 和 `.env` 都不在版本控制里，更新不会覆盖数据和口令。
 三种部署形态（挂载 / 纯镜像 / 裸机）的差别、回滚、升级前备份，见
 **[DEPLOY.md 更新到最新版](DEPLOY.md#更新到最新版)**。
 
