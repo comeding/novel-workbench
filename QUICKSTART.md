@@ -62,10 +62,14 @@ docker compose up -d --build
 docker compose logs -f          # 看日志 / 采集进度
 docker compose restart          # 改完配置重启
 docker compose down             # 停止（数据在 ./data 里，不会丢）
-git pull && docker compose up -d --build   # 升级到新版本
+python dev/update.py            # 升级到新版本（拉代码 + 重建 + 重启 + 探活）
 ```
 
 库文件、归档、原始 JSON 全在宿主机的 `./data/`，**备份只需要备份这一个目录**。
+
+代码更新只用这一条：`python dev/update.py`（Windows 双击 `④ 更新代码.bat`）。
+只想看差几个版本、不动任何东西，就加 `--check`。三种部署形态的差别和回滚写法见
+[DEPLOY.md](DEPLOY.md#更新到最新版)。
 
 ### 容器采不到数据怎么办
 

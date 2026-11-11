@@ -117,6 +117,20 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 
 `data/.token` 里就是口令。三种方式的数据结构完全一致，随时可以换。
 
+### 更新到最新版
+
+```bash
+python dev/update.py        # Windows 双击「④ 更新代码.bat」
+```
+
+问 GitHub → 拉代码 → 重建容器 → 重启 → 探活，一条命令走完。别人 clone 了你的仓库
+要更新也是这一条；`data/` 和 `.env` 都不在版本控制里，不会被覆盖。
+
+想看差几个版本、不想动任何东西：`python dev/update.py --check`。
+
+三种部署形态（挂载 / 纯镜像 / 裸机）的差别、回滚、升级前备份，见
+**[DEPLOY.md 更新到最新版](DEPLOY.md#更新到最新版)**。
+
 部署细节（反向代理、HTTPS、开机自启、备份、升级）见 **[DEPLOY.md](DEPLOY.md)**。
 
 ---
@@ -151,6 +165,9 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 │  ├─ index.html                Vue 模板 + Element 组件
 │  ├─ assets/                   style.css / api.js / app.js
 │  └─ vendor/                   Vue 3.5、Element Plus 2.9、图标、中文包（约 1.7MB）
+├─ dev/                         开发与运维小工具
+│  ├─ supervisor.py             监听 .py 改动自动重启（容器里跑的就是它）
+│  └─ update.py                 一键更新：拉代码 → 重建 → 重启 → 探活
 ├─ config.json                  采集端可选配置（模拟器方案的 adb 路径、设备序列号等）
 ├─ Dockerfile / docker-compose.yml
 ├─ data/                        运行时生成，不进仓库
@@ -160,7 +177,8 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 │  └─ .token                    未设 WB_TOKEN 时自动生成的口令
 ├─ ① 看榜单.bat                 起服务 + 打开看板
 ├─ ② 采集数据.bat               接口采一轮并入账
-└─ ③ 环境自检.bat               检查 Python / 网络 / 接口 / 本机服务
+├─ ③ 环境自检.bat               检查 Python / 网络 / 接口 / 本机服务
+└─ ④ 更新代码.bat               拉最新代码并重建容器
 ```
 
 `data/`、`_legacy/`、`rev/`、`_qqreader/` 都在 `.gitignore` 里，克隆下来不会包含

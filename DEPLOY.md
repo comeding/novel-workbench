@@ -554,18 +554,116 @@ python backend/tools/import_legacy.py
 
 ---
 
-## 升级
+## 更新到最新版
+
+仓库是纯源码分发，没有发布镜像包，所以「拿到最新版」= **拉代码 + 让容器用上新代码**。
+麻烦的从来不是前者，是后者——不同部署形态生效方式不一样，这里一次说清。
+
+### 一条命令
 
 ```bash
 cd novel-workbench
-git pull
-docker compose up -d --build
+python dev/update.py            # 拉代码 → 重建 → 重启 → 探活
 ```
 
-数据库结构变更走 `db.init()` 里的自动迁移，启动时检查缺的列并补上，不需要手动跑 SQL。
+Windows 双击 `④ 更新代码.bat` 等价。它会依次做四件事：问 GitHub 有没有新提交、
+列出新增的提交、`git pull --ff-only`、按当前形态重建并重启容器，最后探一次
+`/api/health` 报就绪。
 
-升级前建议先备份一次 `data/`。真实发生过的情况是：新版改了入库口径，旧数据被覆盖，
-没有备份就只能等下一轮采集重来。
+其它参数：
+
+| 命令 | 用途 |
+| --- | --- |
+| `python dev/update.py --check` | 只看差几个提交，**什么都不动** |
+| `python dev/update.py --no-docker` | 只拉代码（裸 Python / systemd 部署） |
+| `python dev/update.py --image` | 纯镜像形态：带 `-f docker-compose.yml` |
+| `python dev/update.py --rebuild` | 已经是最新，也强制重建一次 |
+
+### 为什么不能只 `git pull`
+
+看你用的是哪种形态：
+
+| 形态 | 启动命令 | 代码在哪 | `git pull` 之后 |
+| --- | --- | --- | --- |
+| 挂载模式（默认） | `docker compose up -d` | 宿主目录挂进容器 | 代码已经是新的，`dev/supervisor.py` 看到 mtime 变了会自动重启，**几秒就生效** |
+| 纯镜像模式 | `docker compose -f docker-compose.yml up -d` | 固化在镜像里 | 容器里还是旧代码，**必须 `--build` 重建** |
+
+挂载模式虽然 pull 就生效，但有个边界：只挂了 `backend/ collector/ frontend/ dev/`
+四个目录。新版本如果新增了顶层目录、改了 `Dockerfile`、或动了镜像里的环境变量，
+光 pull 是不够的。`update.py` 一律带 `--build`，就是为了不让人记这些例外。
+
+### 别人 clone 了你的仓库，怎么更新
+
+```bash
+cd novel-workbench
+git remote -v                   # 确认 origin 指向你的仓库
+python dev/update.py --check    # 先看落后几个提交
+python dev/update.py            # 更新
+```
+
+几个他们一定会问的问题：
+
+**数据会丢吗？** 不会。`data/`（库、原始 JSON、归档、`.token`）在 `.gitignore` 里，
+`git pull` 碰都不碰它。`.env` 同理，他们自己的口令和端口不会被覆盖。
+
+**旧库要删掉重建吗？** 不用。`db.init()` 启动时对着 `schema.sql` 检查缺的列，
+用 `ALTER TABLE` 自动补上（`books` 的书架数、`entries.words_exact` 都是这么加的），
+老数据原地保留。新增的表是 `CREATE TABLE IF NOT EXISTS`。
+
+**他们自己改过代码怎么办？** `git pull` 会在冲突处直接拒绝（脚本用的是 `--ff-only`，
+不会偷偷生成 merge 提交）。想留着改动就先 `git stash`，拉完 `git stash pop`；
+不想要就 `git checkout -- .`。长期本地魔改的话，更省事的是 fork 一份，
+把 `origin` 指向自己的 fork，把你这边加成 `upstream`：
+
+```bash
+git remote rename origin upstream
+git remote add origin https://github.com/他们自己的/novel-workbench.git
+git pull upstream main          # 拿你的更新
+```
+
+**怎么确认真的更新了？** 三种对法，任选：
+
+```bash
+git log --oneline -1            # 和你 GitHub 上最新提交的短哈希对比
+curl -s http://127.0.0.1:8765/api/health
+docker compose logs --tail=5    # 启动横幅里有采集方式的耗时
+```
+
+`update.py` 开头那行 `本地 xxxx  远程 yyyy  领先 0 / 落后 1` 就是干这个的。
+
+### 手动更新（不想用脚本）
+
+```bash
+# 挂载模式
+git pull && docker compose up -d --build
+
+# 纯镜像模式
+git pull && docker compose -f docker-compose.yml up -d --build
+
+# 裸 Python / systemd
+git pull && sudo systemctl restart novel-workbench
+```
+
+### 升级前备份，否则出问题只能等下一轮采集
+
+```bash
+# 容器在跑的时候不要直接 cp 那个 .db（WAL 模式，会拷到半截数据）
+docker compose exec web python -c "import sqlite3;s=sqlite3.connect('/data/workbench.db');d=sqlite3.connect('/data/backup.db');s.backup(d)"
+```
+
+真实发生过：新版改了入库口径，旧数据被覆盖，没备份就只能等下一轮采集重来。
+完整做法见[备份与迁移](#备份与迁移)。
+
+### 回滚
+
+```bash
+git log --oneline -8            # 找到上一个版本
+git checkout <旧提交> -- .      # 只把工作区退回去，不动历史
+python dev/update.py --rebuild  # 按旧代码重建
+```
+
+要连历史一起退就 `git reset --hard <旧提交>`，之后 `git pull` 会再次前进，
+适合「就想先跑回旧版看两天」的场景。
 
 ---
 
