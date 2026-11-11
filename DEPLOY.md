@@ -41,6 +41,11 @@
 
 ## 方式一：Docker Compose（推荐）
 
+> 仓库里有两个 compose 文件：`docker-compose.yml`（基础，代码打进镜像）和
+> `docker-compose.override.yml`（自动叠加，把代码目录挂进容器，改完即生效）。
+> 直接 `docker compose up -d` 就会用上后者，适合自己边改边用；
+> 部署到别的机器想去掉这层映射，见[改了代码怎么生效](#改了代码怎么生效)。
+
 ### 1. 拉代码
 
 ```bash
@@ -141,35 +146,41 @@ docker compose logs -f --tail 50
 
 ### 改了代码怎么生效
 
-**代码不在卷里，在镜像层。** `backend/` `collector/` `frontend/` 是 `docker build` 时
-`COPY` 进去的，本地改完不重建镜像，容器里跑的还是旧代码 —— 只有 `./data` 是实时的。
-
-| 改了什么 | 生效方式 |
-| --- | --- |
-| `data/` 里的库、json | 立即生效（这是卷） |
-| `.env` 里的端口、口令、开关 | `docker compose up -d`（重建容器，不重新编译） |
-| `backend/` `collector/` `frontend/` | `docker compose up -d --build`（默认几秒，基础镜像已缓存） |
-
-**开发时别反复 build**，用开发覆盖文件把代码挂进容器：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-```
+默认的 `docker compose up -d` 会**自动读 `docker-compose.override.yml`**，把
+`backend/` `collector/` `frontend/` 以 bind mount 方式挂进容器：
 
 ```
 宿主机 backend/ collector/ frontend/  ←→  容器 /app/ 下同名目录
 ```
 
-改完之后的生效方式：
+也就是说容器里跑的就是你磁盘上的文件，改完立刻生效：
 
-- `frontend/` → 刷新浏览器（开发文件里设了 `WB_DEV=1`，静态资源不再缓存）
-- `backend/` → `docker compose restart web`（Python 没有热重载，必须重启进程）
-- `collector/` → 直接重跑采集，每次都是新起子进程
+| 改了什么 | 怎么生效 | 要等多久 |
+| --- | --- | --- |
+| `frontend/`（html / js / css） | 刷新浏览器 | 立即 |
+| `backend/`（Python） | `dev/supervisor.py` 监听改动，自动重启进程 | 1~3 秒 |
+| `collector/` | 下次采集自然用新版本 | 无需操作 |
+| `data/` 里的库、json | 立即生效（这是卷） | 立即 |
+| `.env` 的端口、口令、开关 | `docker compose up -d`（重建容器） | 2 秒 |
 
-回到正常部署形态：`docker compose up -d`（不带 `-f` 那个参数，容器会重建回镜像版本）。
+`dev/supervisor.py` 是个零依赖的小守护进程，启动日志第二行会打
+`开发模式 监听 backend / collector 下的 .py，改完自动重启`。它做三件事：
 
-> 另一种更轻的开发方式：这个项目零第三方依赖，本机 `python backend/server.py`
-> 直接跑就行，改完 Ctrl+C 重启，比 bind mount 还快。Docker 留给「验证部署形态」。
+- 轮询 `.py` 的 mtime（Windows 上 bind mount 的 inotify 事件会漏，轮询才可靠）
+- 保存时文件常分两次落盘，它等连续 1 秒没动静再重启，避免连着重启两回
+- `collector/` 的改动不重启服务 —— 采集是子进程，下次跑就是新的
+
+**要跑「纯镜像」形态**（代码固化在镜像里，推到别的机器部署）：
+
+```bash
+docker compose -f docker-compose.yml up -d     # 显式忽略 override
+```
+
+这时改代码必须 `docker compose -f docker-compose.yml up -d --build` 才生效。
+
+> 代价说明：bind mount 让容器不再是自包含产物，性能上也比镜像层略慢
+> （Windows 上尤其明显，但这个项目总共 2MB 代码，感知不到）。
+> 换来的是「改完就生效」，本地开发值这个价。
 
 ### 关于环境变量
 

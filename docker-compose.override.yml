@@ -1,0 +1,22 @@
+# 默认叠加：docker compose up -d 会自动读这个文件（Compose 约定）。
+#
+# 效果：容器里的代码目录就是宿主机的目录，改完立刻生效 —
+#   frontend/  刷新浏览器即可
+#   backend/   dev/supervisor.py 监听 .py 改动，自动重启（几秒）
+#   collector/ 下次采集自然是新版本
+#
+# 想跑「纯镜像」形态（代码固化在镜像里，适合推到别的机器）：
+#   docker compose -f docker-compose.yml up -d
+services:
+  web:
+    # 用热重载守护进程代替直接起服务；它内部还是 python backend/server.py
+    command: ["python", "dev/supervisor.py"]
+    volumes:
+      - ./data:/data
+      - ./backend:/app/backend
+      - ./collector:/app/collector
+      - ./frontend:/app/frontend
+      - ./dev:/app/dev
+    environment:
+      # 静态资源不缓存，改完 js 不用手动强刷
+      WB_DEV: "1"
