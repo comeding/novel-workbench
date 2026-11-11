@@ -163,6 +163,55 @@ docker compose exec web python collector/api_rank.py --check
 
 想换宿主机端口，改 `.env` 的 `WB_PORT`，容器内部始终是 8765。
 
+### 国内网络：拉不到基础镜像怎么办
+
+`docker compose build` 第一步要拉 `python:3.12-slim`。如果日志里是
+
+```
+dial tcp 74.86.142.55:443: connectex: A connection attempt failed
+failed to resolve source metadata for docker.io/library/python:3.12-slim
+```
+
+说明这台机器连不上 `docker.io`（能上 GitHub 不代表能上 Docker Hub）。三种解法，从省事到彻底：
+
+**① 只改这个项目（最快）**
+
+`.env` 里加一行，构建时换个镜像源：
+
+```ini
+BASE_IMAGE=docker.1ms.run/library/python:3.12-slim
+```
+
+`docker compose up -d --build` 即可。可用地址还有 `docker.xuanyuan.me`、
+`docker.m.daocloud.io`、`docker.1panel.live`，哪个快用哪个。
+
+**② 给整个 Docker 配加速（一劳永逸）**
+
+编辑 `~/.docker/daemon.json`（Windows 是 `C:\Users\你的名字\.docker\daemon.json`，
+Docker Desktop 的 Settings → Docker Engine 里改也一样）：
+
+```json
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me",
+    "https://docker.m.daocloud.io"
+  ]
+}
+```
+
+保存后在 Docker Desktop 里点 Apply & Restart（或 `docker desktop restart`）生效。
+之后 `FROM python:3.12-slim` 和任何 `docker pull` 都会自动走镜像，`BASE_IMAGE` 就不用了。
+
+**③ 走代理**
+
+Docker Desktop → Settings → Resources → Proxies → Manual，填 `http://127.0.0.1:端口`。
+注意容器内的 `HTTPS_PROXY` 是另一回事：容器要访问外网（采集榜单）时，
+代理地址要用 `host.docker.internal:端口` 而不是 `127.0.0.1`。
+
+> 验证镜像是否拉到：`docker images | grep python`。已经在本地的镜像不会重复下载，
+> 所以第一次成功后，后面重建都只要几秒。
+
 ### 停止与清理
 
 ```bash

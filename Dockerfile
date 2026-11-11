@@ -3,7 +3,11 @@
 # 零第三方依赖，所以不需要 pip install，镜像里只有标准库 + 代码本身。
 # collector/ 也打进来：容器起来就能自己采（能出公网的话），打开页面直接有数据。
 # 想做成纯展示的只读看板，建容器时设 WB_ALLOW_COLLECT=0。
-FROM python:3.12-slim
+# 基础镜像可换：国内网络拉不到 docker.io 时，构建时传
+#   --build-arg BASE_IMAGE=docker.1ms.run/library/python:3.12-slim
+# compose 里从 .env 的 BASE_IMAGE 读，默认仍是官方镜像。
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

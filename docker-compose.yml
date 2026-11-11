@@ -3,7 +3,12 @@ name: wn-workbench
 
 services:
   web:
-    build: .
+    build:
+      context: .
+      # 国内拉不到 docker.io 时，在 .env 里写
+      #   BASE_IMAGE=docker.1ms.run/library/python:3.12-slim
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.12-slim}
     image: wn-workbench:latest
     container_name: wn-workbench
     restart: unless-stopped

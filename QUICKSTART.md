@@ -234,15 +234,16 @@ curl http://127.0.0.1:8765/api/stats
 
 ---
 
-# 五个最容易踩的坑
+# 六个最容易踩的坑
 
 | # | 现象 | 真正的原因 |
 | --- | --- | --- |
 | 1 | 所有 `.bat` 都提示找不到 Python | 装 Python 时没勾 **Add to PATH**，重装并勾选 |
 | 2 | 自检「接口连通 ✗」 | 网络不通或走了不通外网的代理；设 `HTTPS_PROXY` 或换个网 |
-| 3 | 容器里页面一直「没有数据」 | 容器出不了公网；`docker compose exec web python collector/api_rank.py --check` 确认，再走路线 C |
-| 4 | 采集成功但页面没变 | 入库被拒（口令/连接），页面会显示「上报被拒：HTTP 401」这类原因 |
-| 5 | 某些分类条数变少或为 0 | App 改版换了 `actionId`，日志里会打 `✗ 玄幻 cid=533292 无数据`，更新 `collector/rank_cids.json` |
+| 3 | `docker compose build` 卡在拉 `python:3.12-slim` | 连不上 `docker.io`（和能不能上 GitHub 无关）。`.env` 里加 `BASE_IMAGE=docker.1ms.run/library/python:3.12-slim`，详见 DEPLOY.md「国内网络」 |
+| 4 | 容器里页面一直「没有数据」 | 容器出不了公网；`docker compose exec web python collector/api_rank.py --check` 确认，再走路线 C |
+| 5 | 采集成功但页面没变 | 入库被拒（口令/连接），页面会显示「上报被拒：HTTP 401」这类原因 |
+| 6 | 某些分类条数变少或为 0 | App 改版换了 `actionId`，日志里会打 `✗ 玄幻 cid=533292 无数据`，更新 `collector/rank_cids.json` |
 
 ---
 
