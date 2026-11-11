@@ -18,7 +18,7 @@ from .config import Config
 from .router import Request, Router, json_response
 from .routes import boards, books, collect, ingest, runs, system, version
 
-VERSION = "2.1"
+VERSION = "2.1"        # 版本控制页左上角显示用
 
 
 def build_router():
