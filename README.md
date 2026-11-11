@@ -127,15 +127,18 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 git clone https://github.com/comeding/novel-workbench
 cd novel-workbench
 docker compose up -d
-python dev/agent.py --lan        # Windows 双击「⑤ 版本服务.bat」
 ```
 
-之后就不用再碰命令行了。浏览器打开 `http://127.0.0.1:8765`，左侧「版本控制」里
-有当前提交、落后几个提交、待更新的提交列表，点「立即更新部署」就拉代码重建重启。
+就这两条，没有第三步。浏览器打开 `http://127.0.0.1:8765`，左侧「版本控制」里
+有当前提交、落后几个提交、待更新的提交列表，点「立即更新部署」就拉代码、切到新版本。
 可以打开「自动更新」，按 30 分钟 / 1 小时 / 6 小时 / 每天自查一次，有新版自己装。
 
-`--lan` 不能省：页面上的按钮由看板后端转给这个进程，容器走的是虚拟网关，
-只听 `127.0.0.1` 是收不到的。想开机自启：`python dev/agent.py --lan --install`。
+更新是容器自己干的：镜像里装了 git，项目目录整个挂进容器，`git pull` 下来的文件
+经挂载直接落回项目目录，几秒内自动重启。所以不需要在电脑上另跑什么脚本，
+也不吃 docker 权限。从**别的电脑**打开这个看板，一样能点。
+
+唯一的前提是 `docker compose` 没加 `-f docker-compose.yml`（那是纯镜像形态，
+容器里没有 `.git`，页面会如实提示不支持，改用 `python dev/update.py`）。
 
 **你是作者**——本地开发，改完推 GitHub：
 
@@ -146,8 +149,9 @@ python dev/agent.py --lan        # Windows 双击「⑤ 版本服务.bat」
 git add -A && git commit -m "..." && git push
 ```
 
-别人的「检查更新」下次就会看到这个提交。只有改了 `Dockerfile`、依赖或顶层目录时，
-才需要 `docker compose up -d --build` 一次（页面点更新本来也会带 `--build`）。
+别人的「检查更新」下次就会看到这个提交，点一下就能拿到。页面更新只做 `git pull`，
+不动镜像；只有在改了 `Dockerfile` 或镜像里的环境变量时，才需要
+`docker compose up -d --build` 重建一次。
 
 命令行等价物（不进页面时用）：
 
@@ -197,8 +201,8 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 ├─ dev/                         开发与运维小工具
 │  ├─ supervisor.py             监听 .py 改动自动重启（容器里跑的就是它）
 │  ├─ updater.py                更新内核：查版本 / 拉代码 / 重建 / 探活
-│  ├─ update.py                 命令行一键更新
-│  └─ agent.py                  版本服务：页面上的更新按钮由它在宿主执行
+│  ├─ update.py                 命令行一键更新（纯镜像与裸机用）
+│  └─ agent.py                  宿主执行器：纯镜像部署时的兜底，一般用不到
 ├─ config.json                  采集端可选配置（模拟器方案的 adb 路径、设备序列号等）
 ├─ Dockerfile / docker-compose.yml
 ├─ data/                        运行时生成，不进仓库
@@ -209,8 +213,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 ├─ ① 看榜单.bat                 起服务 + 打开看板
 ├─ ② 采集数据.bat               接口采一轮并入账
 ├─ ③ 环境自检.bat               检查 Python / 网络 / 接口 / 本机服务
-├─ ④ 更新代码.bat               拉最新代码并重建容器
-└─ ⑤ 版本服务.bat               起更新服务，页面上的更新按钮靠它执行
+└─ ④ 更新代码.bat               拉最新代码（纯镜像形态用）
 ```
 
 `data/`、`_legacy/`、`rev/`、`_qqreader/` 都在 `.gitignore` 里，克隆下来不会包含

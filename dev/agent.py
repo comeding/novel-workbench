@@ -1,13 +1,18 @@
 #!/usr/bin/env python
-"""版本服务：页面上的「检查更新 / 立即更新 / 自动更新」背后的执行器。
+"""宿主执行器：兜底的「检查更新 / 立即更新 / 自动更新」执行端。
 
-为什么必须有这么个东西在宿主上跑：
-容器里既没有 git 仓库、也没有 docker 权限，自己没法拉代码、更没法重建自己。
-所以把「动代码」的活交给宿主机上的一个零依赖小服务，页面只负责下令和看进度。
+**默认部署用不到它。** 挂载模式下容器里装了 git、项目目录整个挂进来，
+后端自己 `git pull` 就够了（见 backend/app/updater_local.py），
+页面上的按钮也不需要任何额外进程。
+
+这个脚本留给两种情况：
+
+* 纯镜像部署（`docker compose -f docker-compose.yml up -d`）——容器里没有
+  `.git`，自己更新不了，但宿主上还有仓库，可以让它 git pull + 重建；
+* 裸机 / systemd 部署，想在页面上点按钮而不是敲命令。
 
 它默认监听 127.0.0.1:8766（只本机可达）。加了 --lan 就监听所有网卡，
-让看板后端（跑在容器里）能代浏览器把请求转发进来——这样别人在自己电脑上
-打开看板，点「立即更新部署」也能生效。跨机器的请求必须带口令，
+让看板后端（跑在容器里）能代浏览器把请求转发进来。跨机器的请求必须带口令，
 口令与看板共用 data/.token，不会多出一份要维护的东西。
 
     python dev/agent.py                 # 前台跑，Ctrl+C 停（只服务本机页面）
@@ -15,8 +20,6 @@
     python dev/agent.py --interval 30   # 顺带每 30 分钟自动检查一次
     python dev/agent.py --install       # 注册开机自启（Windows 计划任务）
     python dev/agent.py --uninstall     # 取消开机自启
-
-Windows 上双击「⑤ 版本服务.bat」等价于第一条。
 """
 
 import hmac
@@ -458,7 +461,7 @@ def main():
         AUTO["enabled"] = True
         AUTO["interval_min"] = max(5, opt("--interval", int))
 
-    say("网文工作站 · 版本服务")
+    say("网文工作站 · 宿主执行器（纯镜像 / 裸机兜底）")
     say("")
     say("  仓库      %s" % updater.ROOT)
     say("  监听      http://%s:%d" % (host, PORT))
