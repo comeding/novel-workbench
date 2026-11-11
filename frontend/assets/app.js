@@ -569,9 +569,12 @@
         }
         this.ver.loaded = true;
 
-        /* 更新成功的最后一步：服务已经是新代码了，刷新一次把静态资源也换成新的 */
         const j = this.ver.job || {};
-        if (this.page === 'ver' && j.result === 'ok' && j.action === 'update' && !this._verReloaded) {
+        /* 只有「亲眼看着它从跑到跑完」才刷新一次。
+         * 不能只看 result === 'ok'：执行器会把上一次的结果一直留着，
+         * 那样每次进这个页面都会刷新，转成死循环（真踩过）。 */
+        if (j.running && j.action === 'update') this._sawUpdate = true;
+        if (this._sawUpdate && !j.running && j.result === 'ok' && !this._verReloaded) {
           this._verReloaded = true;
           ElMessage.success('更新完成，正在刷新页面…');
           setTimeout(() => location.reload(), 2600);
