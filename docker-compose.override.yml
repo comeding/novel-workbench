@@ -1,22 +1,26 @@
 # 默认叠加：docker compose up -d 会自动读这个文件（Compose 约定）。
 #
-# 效果：容器里的代码目录就是宿主机的目录，改完立刻生效 —
+# 效果：容器里的项目目录就是宿主机的目录，改完立刻生效 —
 #   frontend/  刷新浏览器即可
 #   backend/   dev/supervisor.py 监听 .py 改动，自动重启（几秒）
 #   collector/ 下次采集自然是新版本
 #
+# 顺带解决问题：整个项目目录（含 .git）都挂进来，容器里的 git 就能直接
+# git pull。页面上的「立即更新部署」因此不再需要宿主机上的辅助进程，
+# clone + docker compose up -d 之后全程只点鼠标。
+#
 # 想跑「纯镜像」形态（代码固化在镜像里，适合推到别的机器）：
 #   docker compose -f docker-compose.yml up -d
+# 这种形态容器里没有 .git，页面会退回「只读」并提示用命令行更新。
 services:
   web:
     # 用热重载守护进程代替直接起服务；它内部还是 python backend/server.py
     command: ["python", "dev/supervisor.py"]
     volumes:
       - ./data:/data
-      - ./backend:/app/backend
-      - ./collector:/app/collector
-      - ./frontend:/app/frontend
-      - ./dev:/app/dev
+      # 整个项目根目录，不要拆成 backend/ frontend/ 一个一个挂：
+      # git pull 要写 .git，也要能改到根目录下的 docker-compose.yml 等文件
+      - .:/app
     environment:
       # 静态资源不缓存，改完 js 不用手动强刷
       WB_DEV: "1"

@@ -13,7 +13,7 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import db
+from . import db, updater_local
 from .config import Config
 from .router import Request, Router, json_response
 from .routes import boards, books, collect, ingest, runs, system, version
@@ -29,6 +29,10 @@ def build_router():
 
 
 ROUTER = build_router()
+
+# 版本控制页要用的状态：读上次的版本与任务记录，按配置拉起自动更新。
+# 容器里没有 .git（纯镜像部署）时它什么也不做，页面会退回只读。
+updater_local.boot()
 QUIET = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)
 COMPRESSIBLE = ("application/json", "text/", "application/javascript", "image/svg+xml")
 

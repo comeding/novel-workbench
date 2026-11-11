@@ -1,23 +1,22 @@
-"""版本信息与更新代理。
+"""版本信息与更新入口。
 
-执行更新的活由宿主机上的 dev/agent.py 干（容器里没有 git、也没有 docker 权限）。
-这里做两件事：
+两种执行方式，按部署形态自动选：
 
-1. 把执行器写下的 data/version.json 读出来给页面兜底——服务没开时
-   至少还能显示「上次看到的版本」；
-2. 把页面的指令（检查 / 更新 / 自动开关）代转发给执行器。
+1. **挂载模式（默认）**：容器里装了 git、项目目录整个挂进去，后端自己就能
+   `git pull`，文件经挂载落到宿主机，supervisor 几秒内重启。全程不需要
+   额外进程，也不需要 docker 权限 —— 见 `updater_local`。
+2. **纯镜像 / 裸机**：容器里没有 .git，自己更新不了，就转发给宿主上的
+   `dev/agent.py`（老路子，保留兼容）。
 
-第 2 件是要点。浏览器里的 127.0.0.1 指的是「打开页面那台电脑」，
-别人在自己电脑上看你的看板时，那个地址上没有执行器。所以页面统一请求
-同源的 /api/agent/*，由容器内的后端转给宿主机——这中间只有服务端一跳，
-浏览器在哪儿都不影响。
+不管走哪条，页面都是请求同源的 /api/agent/*，由后端决定谁去干活。
+浏览器在哪儿打开都一样 —— 这是从「直连 127.0.0.1:8766」那个坑里学到的。
 """
 import json
 import os
 import urllib.error
 import urllib.request
 
-from .. import db
+from .. import db, updater_local
 from ..config import Config, get_token
 from ..router import Router, json_response
 
@@ -68,20 +67,36 @@ def _call(path, method="GET", body=None, timeout=6):
     except (urllib.error.URLError, OSError) as e:
         reason = getattr(e, "reason", e)
         return {"ok": False,
-                "error": "连不上宿主更新服务（%s）。在跑看板的那台机器上执行："
-                         "python dev/agent.py --lan" % reason}, 502
+                "error": "连不上宿主更新服务（%s）。容器自己更新不了（纯镜像部署），"
+                         "请用命令行：python dev/update.py" % reason}, 502
     except ValueError:
         return {"ok": False, "error": "执行器返回的不是 JSON"}, 502
 
 
+def local_mode():
+    """容器能不能自己更新。不能就走转发。"""
+    return updater_local.available()[0]
+
+
+def _busy(why):
+    """把「已经在跑」和「根本不可用」区分开，页面好给不同提示。"""
+    return json_response({"ok": False, "error": why},
+                         409 if why == updater_local.BUSY else 400)
+
+
 @router.get(r"/api/agent/state")
 def agent_state(req):
+    if local_mode():
+        return json_response(updater_local.state())
     payload, code = _call("/api/state", timeout=4)
     return json_response(payload, code)
 
 
 @router.post(r"/api/agent/check")
 def agent_check(req):
+    if local_mode():
+        ok, why = updater_local.start("check")
+        return json_response({"ok": True}, 200) if ok else _busy(why)
     payload, code = _call("/api/check", "POST", {}, timeout=8)
     return json_response(payload, code)
 
@@ -92,6 +107,9 @@ def agent_update(req):
         body = req.json()
     except ValueError:
         body = {}
+    if local_mode():
+        ok, why = updater_local.start("update", force=bool(body.get("force")))
+        return json_response({"ok": True}, 200) if ok else _busy(why)
     payload, code = _call("/api/update", "POST",
                           {"force": bool(body.get("force"))}, timeout=8)
     return json_response(payload, code)
@@ -103,6 +121,14 @@ def agent_auto(req):
         body = req.json()
     except ValueError:
         body = {}
+    if local_mode():
+        enabled = body.get("enabled")
+        return json_response({
+            "ok": True,
+            "auto": updater_local.set_auto(
+                enabled=None if enabled is None else bool(enabled),
+                interval_min=body.get("interval_min")),
+        })
     payload, code = _call("/api/auto", "POST", body, timeout=6)
     return json_response(payload, code)
 

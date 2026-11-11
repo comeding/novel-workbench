@@ -9,6 +9,21 @@
 ARG BASE_IMAGE=python:3.12-slim
 FROM ${BASE_IMAGE}
 
+# 装 git：页面上的「立即更新部署」要在容器里直接 git pull，然后把新代码
+# 通过挂载同步回项目目录（热重载几秒生效）。没有 git 就只能让宿主机代劳，
+# 那样用户还得先启动一个 bat——这正是要避免的。
+# 国内 apt 慢就在 .env 里写 APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+ARG APT_MIRROR=
+RUN set -e; \
+    if [ -n "$APT_MIRROR" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            [ -f "$f" ] && sed -i "s|deb.debian.org|$APT_MIRROR|g" "$f" || true; \
+        done; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends git ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
@@ -24,6 +39,7 @@ WORKDIR /app
 COPY backend/ ./backend/
 COPY collector/ ./collector/
 COPY frontend/ ./frontend/
+COPY dev/ ./dev/
 
 # 数据库和归档都放这个卷，容器重建不丢数据
 VOLUME ["/data"]

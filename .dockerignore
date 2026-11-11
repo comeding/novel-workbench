@@ -1,5 +1,7 @@
-# 进镜像的只有 backend/ collector/ frontend/，其余一律排除。
+# 进镜像的只有 backend/ collector/ frontend/ dev/，其余一律排除。
 # 注意：collector/ 必须打进去 —— 容器的自动采集是起 api_rank.py 这个子进程。
+# dev/ 也要进：updater_local 兜底提示、supervisor 都在里面。.git 不进镜像，
+# 运行时靠 bind mount 提供（版本控制页要靠它 git pull）。
 data/
 _legacy/
 workbench/

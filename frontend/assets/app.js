@@ -210,8 +210,8 @@
       verSub() {
         const s = this.vst;
         if (s.branch) return [s.branch, s.date, s.subject].filter(Boolean).join(' · ');
-        if (this.ver.waiting) return '容器正在重建，服务回来后自动刷新';
-        return this.ver.online ? '正在读取…' : '更新服务没连上，下面是上次看到的版本';
+        if (this.ver.waiting) return '容器正在切换代码，服务回来后自动刷新';
+        return this.ver.online ? '正在读取…' : '当前部署形态不支持页面更新，下面是上次看到的版本';
       },
 
       /* 侧边栏那个小圆点：落后几个提交就亮着，提醒该更新了 */
@@ -223,8 +223,8 @@
         const s = this.vst;
         if (!this.ver.online) {
           return this.ver.waiting
-            ? { type: 'warning', text: '服务重启中…' }
-            : { type: 'info', text: '未连接' };
+            ? { type: 'warning', text: '切换代码中…' }
+            : { type: 'info', text: '不可用' };
         }
         if (s.error) return { type: 'warning', text: '检查失败' };
         if (s.behind > 0) return { type: 'warning', text: '落后 ' + s.behind + ' 个提交' };
@@ -234,7 +234,7 @@
 
       verJobTitle() {
         const j = this.ver.job || {};
-        if (j.running) return j.action === 'check' ? '正在问 GitHub…' : '正在更新 · 拉代码 → 重建 → 重启';
+        if (j.running) return j.action === 'check' ? '正在问 GitHub…' : '正在更新 · 拉代码 → 热重载';
         if (j.error) return '失败 · ' + j.error;
         if (j.result === 'ok') return j.action === 'update' ? '更新完成' : '检查完成';
         return '';
@@ -598,37 +598,44 @@
 
         const j = this.ver.job || {};
         /* 只有「亲眼看着它从跑到跑完」才刷新一次。
-         * 不能只看 result === 'ok'：执行器会把上一次的结果一直留着，
+         * 不能只看 result === 'ok'：任务结果会一直留着，
          * 那样每次进这个页面都会刷新，转成死循环（真踩过）。 */
         if (j.running && j.action === 'update') this._sawUpdate = true;
         if (this._sawUpdate && !j.running && j.result === 'ok' && !this._verReloaded) {
+          this._sawUpdate = false;
+          /* 没有新提交时也会返回 ok，这种情况不必刷新，提示一句就够 */
+          const moved = !this._verBefore || (this.vst.short && this.vst.short !== this._verBefore);
           this._verReloaded = true;
-          ElMessage.success('更新完成，正在刷新页面…');
-          setTimeout(() => location.reload(), 2600);
+          if (moved) {
+            ElMessage.success('更新完成，正在刷新页面…');
+            setTimeout(() => location.reload(), 2600);
+          } else {
+            ElMessage.success('已经是最新版本');
+          }
         }
 
         this.scheduleVer(j.running ? 1500 : 8000);
       },
 
       async checkUpdate() {
-        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        if (!this.ver.online) { ElMessage.warning('当前部署形态不支持页面更新，用 python dev/update.py'); return; }
         try {
           await WBAPI.agentCheck();
           ElMessage.info('正在问 GitHub，最多等半分钟（网络差时更久）');
           this.scheduleVer(900);
         } catch (e) {
           if (e.status === 409) ElMessage.info(e.message || '已经有一个任务在跑');
-          else ElMessage.error('检查失败：' + (e.message || '连不上版本服务'));
+          else ElMessage.error('检查失败：' + (e.message || '连不上更新接口'));
         }
       },
 
       async runUpdate() {
-        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        if (!this.ver.online) { ElMessage.warning('当前部署形态不支持页面更新，用 python dev/update.py'); return; }
         const behind = this.vst.behind || 0;
         const dirty = this.vst.dirty;
-        const msg = (behind ? '要拉 ' + behind + ' 个提交，' : '没有新提交，会按当前代码重建一次，')
-          + '然后重建容器。页面会断开几秒再自动刷新，data/ 里的数据不受影响。'
-          + (dirty ? '\n\n⚠ 工作区有未提交改动，拉取可能失败；先 git stash 更稳。' : '');
+        const msg = (behind ? '要拉 ' + behind + ' 个提交，' : '没有新提交，')
+          + '拉完立刻切到新代码，页面会断开几秒再自动刷新，data/ 里的数据不受影响。'
+          + (dirty ? '\n\n⚠ 工作区有未提交改动，拉取会被拒绝；先 git stash 或提交后再来。' : '');
         try {
           await ElMessageBox.confirm(msg, '立即更新部署', {
             confirmButtonText: '开始更新', cancelButtonText: '算了', type: dirty ? 'warning' : 'info'
@@ -636,17 +643,25 @@
         } catch (e) { return; }
 
         try {
-          await WBAPI.agentUpdate(false);
           this._verReloaded = false;
+          this._verBefore = this.vst.short || '';
+          /* 先本地置成「正在跑」：一次快进可能一两秒就完，轮询来不及看到
+           * running=true 的话，后面的「跑完了」就不会触发刷新。 */
+          this._sawUpdate = true;
+          this.ver.job = Object.assign({}, this.ver.job,
+            { running: true, action: 'update', result: '', error: '', log: ['〔更新〕已下发，等容器执行…'] });
+          await WBAPI.agentUpdate(false);
           this.scheduleVer(800);
         } catch (e) {
+          this.ver.job = Object.assign({}, this.ver.job, { running: false });
+          this._sawUpdate = false;
           if (e.status === 409) ElMessage.info(e.message || '已经有一个任务在跑');
-          else ElMessage.error('没启动起来：' + (e.message || '连不上版本服务'));
+          else ElMessage.error('没开始更新：' + (e.message || '连不上更新接口'));
         }
       },
 
       async saveAuto() {
-        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        if (!this.ver.online) { ElMessage.warning('当前部署形态不支持页面更新，用 python dev/update.py'); return; }
         try {
           const r = await WBAPI.agentAuto({
             enabled: !!this.ver.auto.enabled,
