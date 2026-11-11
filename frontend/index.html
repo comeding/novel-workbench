@@ -308,6 +308,10 @@
           <div class="v">{{ $fmt.shelf(current) }}<small>{{ current.sh ? '人' : '榜单热度' }}</small></div>
         </div>
         <div class="dr-cell">
+          <div class="k">新增收藏</div>
+          <div class="v" :class="s24Cls()" :title="s24Tip()">{{ s24Text() }}<small>{{ s24Sub() }}</small></div>
+        </div>
+        <div class="dr-cell">
           <div class="k">总字数</div>
           <div class="v">{{ current.wx ? $fmt.exact(current.wx) : (current.w || '—') }}<small>{{ current.wx ? '字' : '万字' }}</small></div>
         </div>

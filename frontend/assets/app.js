@@ -283,9 +283,46 @@
       /* ---------- 详情抽屉 ---------- */
       openBook(row) {
         if (!row || !row.bid) return;
-        this.current = row;
+        this.current = Object.assign({}, row, { s24: null, s24h: 0 });
         this.positions = this.bookPositions(row.bid);
         this.drawer = true;
+        const bid = String(row.bid);
+        // 「近 24 小时新增收藏」要翻历史快照做差，列表数据集里没有，单独问一次
+        WBAPI.book(bid).then(d => {
+          if (!this.current || String(this.current.bid) !== bid) return;   // 已经翻到别的书了
+          this.current.s24 = d.shelf_24h === undefined ? null : d.shelf_24h;
+          this.current.s24h = d.shelf_24h_hours || 0;
+          this.current.s24cur = d.shelf_num || 0;
+        }).catch(() => {});
+      },
+
+      /* 新增收藏：正数红、负数绿（跟着国内涨红跌绿的习惯），没基准给个破折号 */
+      s24Text() {
+        const c = this.current || {};
+        if (c.s24 === null || c.s24 === undefined) return '—';
+        return (c.s24 > 0 ? '+' : '') + c.s24;
+      },
+      s24Cls() {
+        const c = this.current || {};
+        if (c.s24 === null || c.s24 === undefined || c.s24 === 0) return '';
+        return c.s24 > 0 ? 'up' : 'down';
+      },
+      s24Sub() {
+        const c = this.current || {};
+        if (c.s24 === null || c.s24 === undefined) return '需一天基线';
+        const h = Math.round(c.s24h || 0);
+        return h >= 36 ? '近 ' + h + ' 小时' : '近 24 小时';
+      },
+      /* 说清楚这个差是拿哪两个时点算的，免得把 3 天的增量当成 24 小时看 */
+      s24Tip() {
+        const c = this.current || {};
+        if (c.s24 === null || c.s24 === undefined) {
+          return '需要至少一天前的书架数快照；服务端每 24 小时自动记一次，也可以手动跑 collector/shelf_snapshot.py';
+        }
+        const base = (c.s24cur || 0) - c.s24;
+        const h = Math.round(c.s24h || 0);
+        return '对比 ' + h + ' 小时前的 ' + base + ' 人（当前 ' + c.s24cur + ' 人）。'
+          + '书架数超过 1 万后平台只显示到 0.1 万，误差约 ±1000，新书榜在 1 万以下才是精确值。';
       },
 
       openBookById(bid) {
@@ -299,7 +336,10 @@
         }
         WBAPI.book(bid).then(d => {
           this.current = { bid: d.bid, t: d.title, a: d.author, c2: d.cat2, c3: d.cat3, in: d.intro,
-                           r: '—', n: 0, sh: '', shn: 0, w: '—', wx: 0, lc: '—', lb: '', bg: '', d: '' };
+                           r: '—', n: 0, sh: d.shelf || '', shn: d.shelf_num || 0, w: '—', wx: 0,
+                           lc: '—', lb: '', bg: '', d: '',
+                           s24: d.shelf_24h === undefined ? null : d.shelf_24h,
+                           s24h: d.shelf_24h_hours || 0 };
           this.positions = this.bookPositions(bid);
           this.drawer = true;
         }).catch(() => ElMessage.error('这本书在库里查不到'));

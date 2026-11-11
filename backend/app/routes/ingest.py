@@ -20,7 +20,11 @@ def ingest(req):
     except ValueError as e:
         return json_response({"ok": False, "error": str(e)}, 400)
     try:
-        result = ingest_service.ingest(payload)
+        # 一份报文带 kind=details 就走详情那条路，采集端不必记两个端点
+        if isinstance(payload, dict) and payload.get("kind") == "details":
+            result = ingest_service.ingest_details(payload)
+        else:
+            result = ingest_service.ingest(payload)
     except ValueError as e:
         return json_response({"ok": False, "error": str(e)}, 400)
     return {"ok": True, **result}

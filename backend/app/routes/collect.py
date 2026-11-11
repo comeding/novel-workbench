@@ -191,9 +191,44 @@ def _scheduler(push_url, every):
                     ok, err = start(push_url=push_url)
                     print("  定时采集    %s" % ("已开始" if ok else "跳过：%s" % err),
                           flush=True)
+                _shelf_snapshot(push_url)
         except Exception as e:                   # noqa: BLE001
             print("  定时采集    出错：%s" % e, flush=True)
         time.sleep(every)
+
+
+def _shelf_snapshot(push_url):
+    """书架数快照：每天记一笔，让「近 24 小时新增收藏」有基准可比。
+
+    没有这一步，详情页那个数字永远算不出来 —— 它只能靠两次快照相减。
+    """
+    every = Config.SHELF_SNAPSHOT_EVERY
+    if every <= 0 or not os.path.exists(Config.SHELF_SNAPSHOT_SCRIPT):
+        return
+    try:
+        with db.reader() as con:
+            row = con.execute("SELECT MAX(at) AS m FROM shelf_history").fetchone()
+        last = (row["m"] if row else "") or ""
+    except Exception:                            # noqa: BLE001
+        last = ""
+    if last:
+        try:
+            age = time.time() - time.mktime(time.strptime(last, "%Y-%m-%d %H:%M:%S"))
+        except (TypeError, ValueError, OverflowError):
+            age = every + 1
+        if age < every:
+            return
+    cmd = [sys.executable, "-u", Config.SHELF_SNAPSHOT_SCRIPT,
+           "--push", push_url, "--token", get_token()]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        lines = [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
+        print("  书架快照    %s" % (lines[-1] if lines else "退出码 %s" % r.returncode),
+              flush=True)
+    except subprocess.TimeoutExpired:
+        print("  书架快照    超时（15 分钟没跑完）", flush=True)
+    except Exception as e:                       # noqa: BLE001
+        print("  书架快照    出错：%s" % e, flush=True)
 
 
 @router.post(r"/api/collect")

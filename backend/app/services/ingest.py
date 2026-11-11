@@ -224,6 +224,7 @@ def ingest_details(payload):
 
     at = _txt(payload.get("collected_at")).strip() or time.strftime("%Y-%m-%d %H:%M:%S")
     updated = 0
+    snaps = 0
 
     with db.tx() as con:
         for it in items:
@@ -233,12 +234,13 @@ def ingest_details(payload):
             shelf = _txt(it.get("shelf")).strip()
             if not bid or not shelf:
                 continue
+            shelf_num = _int(it.get("shelf_num"))
             cur = con.execute(
                 "UPDATE books SET shelf = ?, shelf_num = ?, fans = ?, fans_num = ?,"
                 " score = ?, ratings = ?, detail_at = ? WHERE bid = ?",
                 (
                     shelf,
-                    _int(it.get("shelf_num")),
+                    shelf_num,
                     _txt(it.get("fans")),
                     _int(it.get("fans_num")),
                     it.get("score") if isinstance(it.get("score"), (int, float)) else None,
@@ -249,6 +251,16 @@ def ingest_details(payload):
             )
             updated += 1 if cur.rowcount else 0
 
+            # 留一条历史，供「近 24 小时新增收藏」做差。
+            # 同一秒重复上报会覆盖同一行，所以重跑是幂等的。
+            if shelf_num > 0:
+                con.execute(
+                    "INSERT INTO shelf_history (bid, at, shelf_num) VALUES (?, ?, ?)"
+                    " ON CONFLICT(bid, at) DO UPDATE SET shelf_num = excluded.shelf_num",
+                    (bid, at, shelf_num),
+                )
+                snaps += 1
+
         if updated:
             con.execute(
                 "INSERT INTO meta (k, v) VALUES ('revision', ?)"
@@ -256,4 +268,5 @@ def ingest_details(payload):
                 (str(int(time.time() * 1000)),),
             )
 
-    return {"updated": updated, "total": len(items), "collected_at": at}
+    return {"updated": updated, "snapshots": snaps, "total": len(items),
+            "collected_at": at}

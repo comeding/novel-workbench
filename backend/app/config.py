@@ -43,6 +43,12 @@ class Config:
     # 0 = 关闭（只靠启动时那一次）。容器里建议开着，否则不重启就一直吃老数据。
     COLLECT_EVERY = float(os.environ.get("WB_COLLECT_EVERY") or 0) * 3600
 
+    # 书架数快照：每天记一次「加入书架」人数，供「近 24 小时新增收藏」做差。
+    # 没有历史就没有增量，所以这条要跟榜单采集一起常驻。0 = 关闭。
+    SHELF_SNAPSHOT_SCRIPT = _path("WB_SHELF_SCRIPT",
+                                  os.path.join("collector", "shelf_snapshot.py"))
+    SHELF_SNAPSHOT_EVERY = float(os.environ.get("WB_SHELF_EVERY") or 24) * 3600
+
     # 开发模式：前端静态资源一律 no-store。
     # 生产默认给 .js/.css 一个小时的缓存，改完要强刷才看得到；
     # 开发时（配合 docker-compose.dev.yml 的 bind mount）设 WB_DEV=1 省掉这一步。

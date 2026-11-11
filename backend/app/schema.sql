@@ -81,3 +81,21 @@ CREATE TABLE IF NOT EXISTS meta (
     k  TEXT PRIMARY KEY,
     v  TEXT
 );
+
+-- 「加入书架」数的历史快照，用来算近 24 小时新增收藏。
+--
+-- QQ阅读 没有任何接口直接给这个增量，只能自己攒两次快照相减：
+--   这次的书架数 - 约 24 小时前的书架数 = 这段时段的净增
+-- 所以每采一次详情就往这里落一条，至少每天要有一次。
+--
+-- 精度提醒：超过 1 万本后网页只给「1.6万」这种展示值，折成整数误差约 ±1000。
+-- 新书榜的书基本都在 1 万以下（网页给精确个位），所以这个指标只对新书榜可信。
+CREATE TABLE IF NOT EXISTS shelf_history (
+    bid        TEXT NOT NULL,
+    at         TEXT NOT NULL,               -- 采集时间 YYYY-MM-DD HH:MM:SS
+    shelf_num  INTEGER NOT NULL,            -- 当时的加入书架数（折成整数）
+    PRIMARY KEY (bid, at)
+);
+
+CREATE INDEX IF NOT EXISTS ix_shelf_hist ON shelf_history (bid, at);
+

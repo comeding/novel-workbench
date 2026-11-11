@@ -299,6 +299,9 @@ body {
 .dr-cell .v { margin-top: 7px; font-size: 21px; font-weight: 700; letter-spacing: -.3px; }
 .dr-cell .v small { font-size: 12px; font-weight: 500; color: #9aa8c4; margin-left: 3px; letter-spacing: 0; }
 .dr-cell .v.sm { font-size: 14.5px; font-weight: 600; }
+/* 新增收藏的涨跌色，跟着国内股市习惯：涨红跌绿 */
+.dr-cell .v.up { color: #e04b52; }
+.dr-cell .v.down { color: #12a15c; }
 .cell-bar { margin-top: 9px; }
 
 .lbl {
