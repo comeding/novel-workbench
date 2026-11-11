@@ -42,9 +42,9 @@
 ## 方式一：Docker Compose（推荐）
 
 > 仓库里有两个 compose 文件：`docker-compose.yml`（基础，代码打进镜像）和
-> `docker-compose.override.yml`（自动叠加，把代码目录挂进容器，改完即生效）。
-> 直接 `docker compose up -d` 就会用上后者，适合自己边改边用；
-> 部署到别的机器想去掉这层映射，见[改了代码怎么生效](#改了代码怎么生效)。
+> `docker-compose.override.yml`（自动叠加，把项目目录整体挂进容器，改完即生效）。
+> 直接 `docker compose up -d` 就会用上后者，这也是默认推荐的形态；想要镜像自包含、
+> 不依赖宿主机文件，见[改了代码怎么生效](#改了代码怎么生效)。
 
 ### 1. 拉代码
 
@@ -559,6 +559,15 @@ python backend/tools/import_legacy.py
 仓库是纯源码分发，没有发布镜像包，所以「拿到最新版」= **拉代码 + 让容器用上新代码**。
 麻烦的从来不是前者，是后者——不同部署形态生效方式不一样，这里一次说清。
 
+整条链只有一条：
+
+```
+本地改代码  →  容器里自动生效  →  git push  →  任意已部署实例点「更新」拉下来
+```
+
+前两步是开发时的常态，细节见[改了代码怎么生效](#改了代码怎么生效)；本节讲后两步——
+代码怎么进仓库，以及已经部署的实例怎么拿到它。
+
 ### 首选：页面上点（挂载模式）
 
 ```bash
@@ -591,63 +600,61 @@ Windows 双击 `④ 更新代码.bat` 等价。它会依次做四件事：问 Gi
 
 ### 三种形态的差别
 
-看你用的是哪种形态：
+区别只在「代码在哪」和「pull 之后要不要重建」：
 
 | 形态 | 启动命令 | 代码在哪 | `git pull` 之后 |
 | --- | --- | --- | --- |
 | 挂载模式（默认） | `docker compose up -d` | 宿主目录挂进容器 | 代码已经是新的，`dev/supervisor.py` 看到 mtime 变了会自动重启，**几秒就生效** |
 | 纯镜像模式 | `docker compose -f docker-compose.yml up -d` | 固化在镜像里 | 容器里还是旧代码，**必须 `--build` 重建** |
+| 裸 Python / systemd | `python backend/server.py` | 宿主目录 | 代码已经是新的，**重启进程**（`systemctl restart`）才生效 |
 
 挂载模式虽然 pull 就生效，但有个边界：项目目录是整体挂进去的，新增文件、
 改配置都能立刻看到；只有**改了 `Dockerfile` 或镜像里的环境变量**这种，
 才需要 `--build` 重建镜像。`update.py` 一律带 `--build`，就是为了不让人记这些例外。
 
-### 别人 clone 了你的仓库，怎么更新
-
-不用做任何额外设置。`docker compose up -d` 之后，打开看板 → 左侧「版本控制」→
-点「立即更新部署」就完事；懒的话把「自动更新」打开，按小时自查。
+### 更新之后：怎么验证、要注意什么
 
 更新是容器自己执行的：镜像里装了 git，项目目录整个挂进容器，拉下来的文件经挂载
 落回项目目录，几秒内自动重启。所以：
 
 - 不用在宿主机上起任何脚本，也不用装 Python
 - 不用 docker 权限，也不需要重建镜像
-- **从别的电脑打开这个看板也能点**——浏览器只跟看板服务器说话
+- **从别的设备打开这个看板也能点**——浏览器只跟看板服务器说话
 
 前提是别加 `-f docker-compose.yml`。那是纯镜像形态，容器里没有 `.git`，
 页面会如实显示「当前形态不支持」，这时走命令行：
 
 ```bash
 cd novel-workbench
-git remote -v                   # 确认 origin 指向你的仓库
+git remote -v                   # 确认 origin 指向发布仓库
 python dev/update.py --check    # 先看落后几个提交
 python dev/update.py            # 更新
 ```
 
-几个他们一定会问的问题：
+更新时会遇到的几个问题：
 
 **数据会丢吗？** 不会。`data/`（库、原始 JSON、归档、`.token`）在 `.gitignore` 里，
-`git pull` 碰都不碰它。`.env` 同理，他们自己的口令和端口不会被覆盖。
+`git pull` 碰都不碰它。`.env` 同理，各实例自己的口令和端口不会被覆盖。
 
 **旧库要删掉重建吗？** 不用。`db.init()` 启动时对着 `schema.sql` 检查缺的列，
 用 `ALTER TABLE` 自动补上（`books` 的书架数、`entries.words_exact` 都是这么加的），
 老数据原地保留。新增的表是 `CREATE TABLE IF NOT EXISTS`。
 
-**他们自己改过代码怎么办？** `git pull` 会在冲突处直接拒绝（脚本用的是 `--ff-only`，
+**部署目录里有本地改动怎么办？** `git pull` 会在冲突处直接拒绝（脚本用的是 `--ff-only`，
 不会偷偷生成 merge 提交）。想留着改动就先 `git stash`，拉完 `git stash pop`；
-不想要就 `git checkout -- .`。长期本地魔改的话，更省事的是 fork 一份，
-把 `origin` 指向自己的 fork，把你这边加成 `upstream`：
+不想要就 `git checkout -- .`。要长期魔改，更省事的是 fork 一份，把 `origin`
+指向自己的 fork，把发布仓库加成 `upstream`：
 
 ```bash
 git remote rename origin upstream
-git remote add origin https://github.com/他们自己的/novel-workbench.git
-git pull upstream main          # 拿你的更新
+git remote add origin https://github.com/自己的账号/novel-workbench.git
+git pull upstream main          # 拿发布仓库的更新
 ```
 
 **怎么确认真的更新了？** 三种对法，任选：
 
 ```bash
-git log --oneline -1            # 和你 GitHub 上最新提交的短哈希对比
+git log --oneline -1            # 和发布仓库最新提交的短哈希对比
 curl -s http://127.0.0.1:8765/api/health
 docker compose logs --tail=5    # 启动横幅里有采集方式的耗时
 ```
@@ -757,8 +764,8 @@ python dev/update.py --rebuild  # 按旧代码重建
 
 ### 自动更新的两条保险
 
-- **工作区有未提交改动就跳过**。你自己正在改代码的时候，它不会 `git pull` 把你
-  的改动冲掉，日志里会写清楚为什么没动手。
+- **工作区有未提交改动就跳过**。手上还改着代码的时候，它不会 `git pull` 把改动
+  冲掉，日志里会写清楚为什么没动手。
 - **只快进，不合并**。用 `git pull --ff-only`，分叉了宁可失败也不留一个 merge 提交。
 
 ### 常见问题

@@ -119,9 +119,31 @@ python collector/api_rank.py --push http://看板地址:8765 --token 口令
 
 ### 更新到最新版
 
-分两种身份看。
+就一条链，从头到尾：
 
-**你是使用者**——clone 别人的仓库，只部署不开发：
+```
+本地改代码  →  容器里自动生效  →  git push  →  打开看板点「更新」拉下来
+```
+
+**一、本地开发。** 项目目录整个挂进容器（`docker-compose.override.yml`），改
+`backend/` `frontend/` `collector/` 下的文件，前端刷新即生效，后端 1~3 秒自动重启，
+不用重建镜像、不用重启容器。
+
+**二、推上去。**
+
+```bash
+git add -A && git commit -m "..." && git push
+```
+
+**三、拉到部署环境。** 任何一台按 `docker compose up -d` 起来的实例——本机、NAS、
+别的电脑——打开看板 → 左侧「版本控制」→「立即更新部署」。容器自己 `git pull`，
+拉下来的文件经挂载落回项目目录，几秒后新代码生效。也可以打开「自动更新」，按
+30 分钟 / 1 小时 / 6 小时 / 每天自查一次。
+
+更新全程只做 `git pull`，不动镜像，所以不用在机器上另跑脚本，也不吃 docker 权限。
+浏览器只跟看板服务器通信，从另一台设备打开这个看板一样能点。
+
+首次部署只有两条命令，之后走上面同一条更新路径：
 
 ```bash
 git clone https://github.com/comeding/novel-workbench
@@ -129,29 +151,12 @@ cd novel-workbench
 docker compose up -d
 ```
 
-就这两条，没有第三步。浏览器打开 `http://127.0.0.1:8765`，左侧「版本控制」里
-有当前提交、落后几个提交、待更新的提交列表，点「立即更新部署」就拉代码、切到新版本。
-可以打开「自动更新」，按 30 分钟 / 1 小时 / 6 小时 / 每天自查一次，有新版自己装。
+三个边界：
 
-更新是容器自己干的：镜像里装了 git，项目目录整个挂进容器，`git pull` 下来的文件
-经挂载直接落回项目目录，几秒内自动重启。所以不需要在电脑上另跑什么脚本，
-也不吃 docker 权限。从**别的电脑**打开这个看板，一样能点。
-
-唯一的前提是 `docker compose` 没加 `-f docker-compose.yml`（那是纯镜像形态，
-容器里没有 `.git`，页面会如实提示不支持，改用 `python dev/update.py`）。
-
-**你是作者**——本地开发，改完推 GitHub：
-
-本地容器是挂载模式，改 `backend/` `frontend/` `collector/` 下的文件几秒内自动重启生效，
-不用重建、不用重开页面。开发完推送即可：
-
-```bash
-git add -A && git commit -m "..." && git push
-```
-
-别人的「检查更新」下次就会看到这个提交，点一下就能拿到。页面更新只做 `git pull`，
-不动镜像；只有在改了 `Dockerfile` 或镜像里的环境变量时，才需要
-`docker compose up -d --build` 重建一次。
+- `docker compose` 别加 `-f docker-compose.yml`。那是纯镜像形态，容器里没有 `.git`，
+  页面会如实提示不支持，改用 `python dev/update.py`。
+- 只有改了 `Dockerfile` 或镜像里的环境变量，才需要 `docker compose up -d --build` 重建一次。
+- `data/` 和 `.env` 不在版本控制里，更新不会覆盖数据和口令。
 
 命令行等价物（不进页面时用）：
 
@@ -160,7 +165,6 @@ python dev/update.py           # 拉代码 → 重建 → 重启 → 探活
 python dev/update.py --check   # 只看差几个版本，什么都不动
 ```
 
-`data/` 和 `.env` 都不在版本控制里，更新不会覆盖数据和口令。
 三种部署形态（挂载 / 纯镜像 / 裸机）的差别、回滚、升级前备份，见
 **[DEPLOY.md 更新到最新版](DEPLOY.md#更新到最新版)**。
 
