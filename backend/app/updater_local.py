@@ -46,23 +46,99 @@ MODE = "container"
 BUSY = "已经有一个任务在跑"
 
 _UNSET = object()
+# 覆盖仓库里的 http.sslBackend。Windows 版 git 用 openssl，会在 .git/config
+# 里写死一项；镜像里的 git（Debian）是 gnutls 版，照用就 fatal:
+#   Unsupported SSL backend 'openssl'. Supported SSL backends: gnutls
+# 这里只在容器内覆盖，不动宿主那份配置。
+_SSL = [""]
 
 
 # ---------------------------------------------------------------- git 调用
 
-def _env_proxy():
-    """容器里 127.0.0.1 指的是容器自己，宿主上配的代理要换成网关地址。
+PROXY_CACHE = os.path.join(DATA, "git.proxy")
+POSITIVE_PORTS = (7890, 7897, 10809, 10808, 8889, 1080, 8118)
+_LAST_PROXY = ""          # 本次进程里验证可用过的代理，pull 时接着用
 
-    取值顺序：WB_GIT_PROXY > 项目 .git/config 里的 http.proxy。
-    都没配就直连——国内直连 GitHub 时快时慢，但至少不会指向一个死端口。
-    """
-    v = (os.environ.get("WB_GIT_PROXY") or "").strip()
-    if v:
-        return v
-    code, out = _raw(["git", "-c", "safe.directory=" + ROOT, "config", "--get", "http.proxy"])
-    if code == 0 and out:
-        return out.strip()
+
+def _in_container():
+    return os.path.isfile("/.dockerenv")
+
+
+def _host_alias():
+    """容器里 127.0.0.1 指的是容器自己，宿主机得走这个别名。"""
+    return "host.docker.internal" if _in_container() else "127.0.0.1"
+
+
+def _norm_proxy(v):
+    v = (v or "").strip().strip('"').strip("'")
+    if not v:
+        return ""
+    if "://" not in v:
+        v = "http://" + v
+    if _in_container():
+        # 用户多半是照抄宿主 .env 里的 127.0.0.1:7897，在容器里得换掉
+        v = re.sub(r"//(127\.0\.0\.1|localhost)(?=[:/]|$)", "//" + _host_alias(), v)
+    return v
+
+
+def _env_file_value(key):
+    try:
+        with open(os.path.join(ROOT, ".env"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip().strip('"').strip("'")
+    except OSError:
+        pass
     return ""
+
+
+def _configured_proxy():
+    """明确配置的代理：环境变量 > .env > 上次探测成功记下的。"""
+    for v in (os.environ.get("WB_GIT_PROXY", ""), _env_file_value("WB_GIT_PROXY")):
+        p = _norm_proxy(v)
+        if p:
+            return p
+    try:
+        with open(PROXY_CACHE, encoding="utf-8") as f:
+            p = _norm_proxy(f.read())
+            if p:
+                return p
+    except OSError:
+        pass
+    return ""
+
+
+def _remember_proxy(p):
+    try:
+        os.makedirs(DATA, exist_ok=True)
+        with open(PROXY_CACHE, "w", encoding="utf-8") as f:
+            f.write(p)
+    except OSError:
+        pass
+
+
+def _guess_proxy():
+    """直连不通时，把宿主上常见的本地代理端口试一遍（结果会被记住）。
+
+    国内直连 github.com 时通时不通是常态，用户装了 Clash 却不知道要告诉容器，
+    这一步就是为了省掉「还得去 .env 里配代理」的麻烦。
+    """
+    host = _host_alias()
+    for port in POSITIVE_PORTS:
+        try:
+            with socket.create_connection((host, port), timeout=0.6):
+                return "http://%s:%d" % (host, port)
+        except OSError:
+            continue
+    return ""
+
+
+def _active_proxy():
+    return _LAST_PROXY or _configured_proxy()
 
 
 def _raw(args, cwd=ROOT, timeout=60):
@@ -82,25 +158,70 @@ def _git(args, timeout=60, proxy=_UNSET):
     """git 命令。带 safe.directory：挂载进来的目录属主和容器内用户对不上，
     不加会直接被 "detected dubious ownership" 拦下来。"""
     cmd = ["git", "-c", "safe.directory=" + ROOT]
-    p = _env_proxy() if proxy is _UNSET else proxy
+    if _SSL[0]:
+        cmd += ["-c", "http.sslBackend=" + _SSL[0]]
+    p = _active_proxy() if proxy is _UNSET else proxy
     if p:
         cmd += ["-c", "http.proxy=" + p, "-c", "https.proxy=" + p]
+    else:
+        # 显式清空，避免继承镜像里可能存在的全局代理配置
+        cmd += ["-c", "http.proxy=", "-c", "https.proxy="]
     return _raw(cmd + args, timeout=timeout)
 
 
-def _fetch(timeout=45):
-    """问一次远端。代理不通就换直连再来一次，两个都失败才算真连不上。"""
-    code, out = _git(["fetch", "origin", "--prune"], timeout=timeout)
-    if code == 0:
-        return 0, out
-    if code == 124:
-        return 124, "%d 秒没连上 github.com（容器出网受限？）" % timeout
-    if _env_proxy():
-        code2, out2 = _git(["fetch", "origin", "--prune"], timeout=timeout, proxy="")
-        if code2 == 0:
-            return 0, out2
-        return code2, (out2 or out)
-    return code, out
+def _fix_ssl(out):
+    """从 git 的报错里认出本机支持的 SSL 后端，改成它，返回是否改过。
+
+    git 自己会把候选打出来（"Supported SSL backends: gnutls"），
+    比预先猜 gnutls / openssl 稳，换基础镜像也不会翻车。
+    """
+    if _SSL[0]:
+        return False
+    m = re.search(r"Supported SSL backends:\s*([A-Za-z0-9_,\s]+)", out or "")
+    if not m:
+        return False
+    cand = m.group(1).split(",")[0].strip().split()[0]
+    if not cand:
+        return False
+    _SSL[0] = cand
+    return True
+
+
+def _fetch(timeout=20):
+    """问一次远端，尽量别因为网络或环境问题失败。
+
+    顺序：配置的代理 → 直连 → 猜一把宿主机本地代理（猜中就记住）。
+    直连限 20 秒：国内多半是干等，早点转去探测代理。
+    """
+    global _LAST_PROXY
+    cfg = _configured_proxy()
+    order = ([cfg] if cfg else []) + [""]
+    last = (1, "fetch 失败")
+    for p in order:
+        code, out = _git(["fetch", "origin", "--prune"], timeout=timeout, proxy=p)
+        if code == 0:
+            _LAST_PROXY = p
+            if p and p != cfg:
+                _remember_proxy(p)
+            return 0, out
+        if _fix_ssl(out):                   # 换掉 SSL 后端再来一次
+            code, out = _git(["fetch", "origin", "--prune"], timeout=timeout, proxy=p)
+            if code == 0:
+                _LAST_PROXY = p
+                if p and p != cfg:
+                    _remember_proxy(p)
+                return 0, out
+        last = (124, "%d 秒没连上 github.com" % timeout) if code == 124 else (code, out)
+
+    guess = _guess_proxy()
+    if guess and guess != cfg:
+        code, out = _git(["fetch", "origin", "--prune"], timeout=timeout, proxy=guess)
+        if code == 0:
+            _LAST_PROXY = guess
+            _remember_proxy(guess)
+            return 0, out
+        last = (code, out)
+    return last
 
 
 # ---------------------------------------------------------------- 状态
