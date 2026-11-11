@@ -4,7 +4,10 @@
  */
 (function () {
   const { createApp } = Vue;
-  const ElMessage = ElementPlus.ElMessage;
+  /* Element Plus 的 UMD 只挂一个 ElementPlus 全局，弹窗和消息都得从这里取；
+   * 少解构一个，调用处就是 ReferenceError，而 try/catch 又会把它吞掉——
+   * 表现成「点了按钮什么都不发生」。 */
+  const { ElMessage, ElMessageBox } = ElementPlus;
 
   /* ---------- 数值口径 ---------- */
   const exact = n => (Number(n) || 0).toLocaleString('en-US');
@@ -644,7 +647,14 @@
           await ElMessageBox.confirm(msg, '立即更新部署', {
             confirmButtonText: '开始更新', cancelButtonText: '算了', type: dirty ? 'warning' : 'info'
           });
-        } catch (e) { return; }
+        } catch (e) {
+          /* 点「算了」或关掉弹窗是正常路径；其它异常要喊出来，
+           * 不能再静默吞掉——那就是「点了按钮没反应」的样子。 */
+          if (e !== 'cancel' && e !== 'close') {
+            ElMessage.error('没弹出确认框：' + ((e && e.message) || e));
+          }
+          return;
+        }
 
         try {
           this._verReloaded = false;
