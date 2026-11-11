@@ -90,13 +90,11 @@
           </el-button>
         </div>
         <div class="right" v-else>
-          <el-tag size="large" effect="plain" round class="chip"
-                  :type="ver.online ? 'success' : (ver.waiting ? 'warning' : 'info')">
-            {{ ver.online ? '可更新' : (ver.waiting ? '正在切换代码…' : '当前形态不支持') }}
-          </el-tag>
-          <el-button plain :disabled="ver.waiting" @click="loadVer">
-            <el-icon><refresh></refresh></el-icon>刷新状态
-          </el-button>
+          <el-tooltip content="重新读取版本状态" placement="bottom">
+            <el-button circle plain :disabled="ver.waiting" @click="loadVer">
+              <el-icon><refresh></refresh></el-icon>
+            </el-button>
+          </el-tooltip>
         </div>
       </el-header>
 
@@ -105,93 +103,51 @@
         <!-- ---------- 版本控制 ---------- -->
         <template v-if="page === 'ver'">
           <section class="ver">
-            <div class="ver-cards">
-              <el-card shadow="never" class="ver-card">
-                <div class="ver-hd">
-                  <div>
-                    <div class="ver-k">当前版本</div>
-                    <div class="ver-no">{{ verNo }}</div>
-                    <div class="ver-sub">{{ verSub }}</div>
+            <el-card shadow="never" class="ver-card">
+              <div class="ver-hd">
+                <div>
+                  <div class="ver-no">{{ verNo }}</div>
+                  <div class="ver-sub">{{ verSub }}</div>
+                  <div class="ver-meta">
+                    <span v-if="vst.branch" class="mono">{{ vst.branch }}</span>
+                    <span v-if="vst.date">{{ vst.date }}</span>
+                    <span :class="vst.dirty ? 'warn' : 'ok'">{{ vst.dirty ? '有未提交改动' : '工作区干净' }}</span>
+                    <span>{{ vst.checked_at ? '上次检查 ' + vst.checked_at.slice(5, 16) : '还没检查过' }}</span>
                   </div>
-                  <el-tag effect="light" round :type="verTag.type">{{ verTag.text }}</el-tag>
                 </div>
-
-                <div class="ver-rows">
-                  <div class="vr"><span>分支</span><b class="mono">{{ vst.branch || '—' }}</b></div>
-                  <div class="vr"><span>远程最新</span><b class="mono">{{ vst.remote_short || '—' }}</b></div>
-                  <div class="vr"><span>领先 / 落后</span><b class="mono">{{ vst.ahead || 0 }} / {{ vst.behind || 0 }}</b></div>
-                  <div class="vr"><span>工作区</span>
-                    <b :class="vst.dirty ? 'warn' : 'ok'">{{ vst.dirty ? '有未提交改动' : '干净' }}</b>
-                  </div>
-                  <div class="vr"><span>上次检查</span><b>{{ vst.checked_at || '还没检查过' }}</b></div>
-                </div>
-
-                <el-alert v-if="vst.error" :title="vst.error" type="warning" :closable="false"
-                          show-icon class="ver-alert-in"></el-alert>
-
-                <div class="ver-btns">
-                  <el-button :loading="ver.job.running && ver.job.action === 'check'"
-                             :disabled="!ver.online || ver.job.running" @click="checkUpdate">
-                    <el-icon v-if="!(ver.job.running && ver.job.action === 'check')"><refresh></refresh></el-icon>
-                    检查更新
-                  </el-button>
-                  <el-button type="primary" :loading="ver.job.running && ver.job.action === 'update'"
-                             :disabled="!ver.online || ver.job.running" @click="runUpdate">
-                    立即更新部署
-                  </el-button>
-                </div>
-              </el-card>
-
-              <el-card shadow="never" class="ver-card">
-                <div class="ver-hd">
-                  <div>
-                    <div class="ver-k">自动更新</div>
-                    <div class="ver-no sm">{{ ver.auto.enabled ? '已开启' : '已关闭' }}</div>
-                    <div class="ver-sub">开启后它自己去看有没有新版，有就拉下来并生效</div>
-                  </div>
-                  <el-switch v-model="ver.auto.enabled" :disabled="!ver.online" @change="saveAuto"></el-switch>
-                </div>
-
-                <div class="ver-rows">
-                  <div class="vr"><span>检查间隔</span>
-                    <el-select v-model="ver.auto.interval_min" size="small" class="ver-sel"
-                               :disabled="!ver.online" @change="saveAuto">
-                      <el-option :value="30" label="每 30 分钟"></el-option>
-                      <el-option :value="60" label="每小时"></el-option>
-                      <el-option :value="360" label="每 6 小时"></el-option>
-                      <el-option :value="1440" label="每天"></el-option>
-                    </el-select>
-                  </div>
-                  <div class="vr"><span>上次自动更新</span><b>{{ ver.auto.last_run || '从未' }}</b></div>
-                  <div class="vr"><span>执行方式</span>
-                    <b :class="ver.online ? 'ok' : 'warn'">
-                      {{ ver.online ? '容器内直接拉取 · pid ' + (ver.agent.pid || '—')
-                         : (ver.waiting ? '切换中，等它回来' : '不支持（纯镜像部署）') }}
-                    </b>
-                  </div>
-                  <div class="vr"><span>部署位置</span><b class="mono ell">{{ vst.root || '—' }}</b></div>
-                </div>
-
-                <p class="ver-tip">
-                  点更新后容器自己执行 <code>git pull</code>，新文件经挂载直接落回项目目录，
-                  几秒内自动重启生效——不需要先在电脑上跑任何脚本。
-                  工作区有未提交改动时会跳过，不动你正在改的代码。
-                </p>
-              </el-card>
-            </div>
-
-            <el-alert v-if="!ver.online && !ver.waiting" type="warning" :closable="false" show-icon class="ver-alert"
-                      title="这个部署形态没法在页面上更新">
-              <div class="ver-cmd">docker compose up -d</div>
-              <div class="ver-note">
-                页面工作需要一个条件：容器里看得到 <code>.git</code>。默认的挂载模式满足，
-                纯镜像模式（启动时加了 <code>-f docker-compose.yml</code>）不满足。<br>
-                纯镜像部署想更新，就在项目目录执行：<code>python dev/update.py</code>。
-                <div v-if="ver.err" style="margin-top:6px;color:#c4562f">诊断：{{ ver.err }}</div>
+                <el-tag effect="light" round :type="verTag.type">{{ verTag.text }}</el-tag>
               </div>
-            </el-alert>
 
-            <el-card v-if="ver.job.running || ver.job.result" shadow="never" class="prog-card ver-prog">
+              <el-alert v-if="vst.error" :title="vst.error" type="warning" :closable="false"
+                        show-icon class="ver-alert-in"></el-alert>
+
+              <div class="ver-btns">
+                <el-button :loading="ver.job.running && ver.job.action === 'check'"
+                           :disabled="!ver.online || ver.job.running" @click="checkUpdate">
+                  <el-icon v-if="!(ver.job.running && ver.job.action === 'check')"><refresh></refresh></el-icon>
+                  检查更新
+                </el-button>
+                <el-button type="primary" :loading="ver.job.running && ver.job.action === 'update'"
+                           :disabled="!ver.online || ver.job.running" @click="runUpdate">
+                  立即更新部署
+                </el-button>
+
+                <span class="ver-auto">
+                  自动更新
+                  <el-switch v-model="ver.auto.enabled" size="small" :disabled="!ver.online"
+                             @change="saveAuto"></el-switch>
+                  <el-select v-if="ver.auto.enabled" v-model="ver.auto.interval_min" size="small"
+                             class="ver-sel" :disabled="!ver.online" @change="saveAuto">
+                    <el-option :value="30" label="每 30 分钟"></el-option>
+                    <el-option :value="60" label="每小时"></el-option>
+                    <el-option :value="360" label="每 6 小时"></el-option>
+                    <el-option :value="1440" label="每天"></el-option>
+                  </el-select>
+                </span>
+              </div>
+            </el-card>
+
+            <el-card v-if="ver.job.running || ver.job.error" shadow="never" class="prog-card ver-prog">
               <div class="prog-hd">
                 <span class="dot" :class="ver.job.error ? 'err' : (ver.job.result === 'ok' ? 'ok' : 'run')"></span>
                 <b>{{ verJobTitle }}</b>
@@ -204,30 +160,25 @@
               <pre v-if="ver.job.log && ver.job.log.length" class="prog-log ver-log">{{ ver.job.log.join('\n') }}</pre>
             </el-card>
 
-            <el-card shadow="never" class="ver-card ver-commits">
-              <div class="ver-bar">
-                <b>待更新的提交</b>
-                <span class="dim">{{ (vst.commits || []).length ? '共 ' + vst.commits.length + ' 个' : '没有新提交' }}</span>
-                <span class="sp"></span>
-                <span class="dim">{{ ver.auto.last_check ? '上次检查 ' + ver.auto.last_check.slice(5) : '' }}</span>
+            <el-card v-if="(vst.commits || []).length" shadow="never" class="ver-card">
+              <div class="ver-bar"><b>待更新 {{ vst.commits.length }} 个提交</b></div>
+              <div class="ver-list">
+                <div class="ver-item" v-for="c in vst.commits" :key="c.hash">
+                  <code>{{ c.hash }}</code>
+                  <span class="msg">{{ c.subject }}</span>
+                  <span class="t">{{ (c.time || '').slice(5, 16) }}</span>
+                </div>
               </div>
-              <el-table :data="vst.commits || []" size="small" empty-text="已经是最新版">
-                <el-table-column label="提交" width="104">
-                  <template #default="{ row }"><code>{{ row.hash }}</code></template>
-                </el-table-column>
-                <el-table-column prop="subject" label="说明" show-overflow-tooltip min-width="260"></el-table-column>
-                <el-table-column prop="time" label="时间" width="150"></el-table-column>
-              </el-table>
             </el-card>
 
-            <el-card shadow="never" class="ver-card ver-help">
-              <div class="ver-bar"><b>不想用页面的时候</b><span class="sp"></span>
-                <span class="dim">和上面按钮做的是同一件事</span>
+            <el-alert v-if="!ver.online && !ver.waiting" type="warning" :closable="false" show-icon
+                      class="ver-alert" title="这个部署形态不支持页面更新">
+              <div class="ver-note">
+                容器里看不到 <code>.git</code>（纯镜像部署，启动时加了 <code>-f docker-compose.yml</code>）。
+                改成 <code>docker compose up -d</code>，或在项目目录跑 <code>python dev/update.py</code>。
+                <div v-if="ver.err" style="margin-top:6px;color:#c4562f">诊断：{{ ver.err }}</div>
               </div>
-              <pre class="ver-code">python dev/update.py --check     # 只看差几个提交
-python dev/update.py             # 拉代码 + 让容器用上新代码
-docker compose up -d --build     # 改过 Dockerfile 才需要重建镜像</pre>
-            </el-card>
+            </el-alert>
           </section>
         </template>
 

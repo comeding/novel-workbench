@@ -212,9 +212,9 @@
 
       verSub() {
         const s = this.vst;
-        if (s.branch) return [s.branch, s.date, s.subject].filter(Boolean).join(' · ');
+        if (s.subject) return s.subject;
         if (this.ver.waiting) return '容器正在切换代码，服务回来后自动刷新';
-        return this.ver.online ? '正在读取…' : '当前部署形态不支持页面更新，下面是上次看到的版本';
+        return this.ver.online ? '正在读取…' : '当前部署形态不支持页面更新';
       },
 
       /* 侧边栏那个小圆点：落后几个提交就亮着，提醒该更新了 */
