@@ -280,7 +280,9 @@
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
-          else if (h === 'ver') this.openVer();
+          /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
+             这里不再认它，顺手把地址栏里残留的去掉 */
+          else if (h === 'ver') this.clearHash();
           /* 空库时服务正在自动采，先把进度接上再撤掉 loading，避免闪一下「没数据」 */
           await this.attachRunning();
         } catch (e) {
@@ -534,13 +536,19 @@
       },
 
       /* ---------- 版本控制 ----------
-       * 真正干活的是宿主上的 dev/agent.py：容器里没有 git、也没有 docker 权限，
-       * 拉代码和重建容器只能在宿主机做。这里只负责下指令 + 显示进度。
+       * 拉代码是后端（updater_local.py）在容器里做的，这里只负责触发 + 显示进度。
        */
       openVer() {
         this.page = 'ver';
-        try { history.replaceState(null, '', '#ver'); } catch (e) {}
+        /* 不把 #ver 写进地址栏：这是工作台内部的一页，不该被刷新/收藏带回来 */
+        if ((location.hash || '') === '#ver') this.clearHash();
         this.loadVer();
+      },
+
+      clearHash() {
+        try {
+          history.replaceState(null, '', location.pathname + location.search);
+        } catch (e) {}
       },
 
       stopVer() {
@@ -721,7 +729,7 @@
       window.addEventListener('resize', this._onResize);
       window.addEventListener('hashchange', () => {
         const h = (location.hash || '').replace('#', '');
-        if (h === 'ver') { if (this.page !== 'ver') this.openVer(); return; }
+        /* 地址栏只认榜单（#vip / #new），页面本身由左侧菜单决定 */
         if (this.boards[h] && h !== this.activeTab) { this.page = 'qq'; this.activeTab = h; }
       });
     },
