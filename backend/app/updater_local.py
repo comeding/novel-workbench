@@ -149,8 +149,11 @@ def _raw(args, cwd=ROOT, timeout=60):
     except subprocess.TimeoutExpired:
         return 124, "timeout"
     out = (p.stdout or "").strip()
-    if p.returncode != 0 and not out:
-        out = (p.stderr or "").strip()
+    if p.returncode != 0:
+        # 失败原因基本都在 stderr；成功时 git 也爱往 stderr 写统计，那部分不要
+        err = (p.stderr or "").strip()
+        if err:
+            out = (out + "\n" + err).strip() if out else err
     return p.returncode, out
 
 
@@ -451,9 +454,16 @@ def _job(action, force):
                 return
             if st["dirty"] and not force:
                 raise RuntimeError("工作区有未提交的改动，没敢拉。先 git stash 或提交后再试")
-            ok, out = _git(["pull", "--ff-only", "origin", st["branch"]], timeout=120)
-            if not ok:
-                raise RuntimeError("拉取失败：" + (out.splitlines()[-1] if out else ""))
+            code, out = _git(["pull", "--ff-only", "origin", st["branch"]], timeout=120)
+            if code != 0:
+                # git 在「已经拉完」之后仍可能因为收尾动作返回非 0（比如挂载目录
+                # 上删临时文件失败）。以实际 HEAD 为准，别把成功报成失败。
+                after = status(fetch=False)
+                if after.get("short") and after["short"] == st.get("remote_short"):
+                    say("pull 退出码 %d，但代码已是最新（%s），继续" % (code, after["short"]))
+                else:
+                    raise RuntimeError("拉取失败（git exit %d）：%s"
+                                       % (code, out.splitlines()[-1] if out else ""))
             say("拉取完成，正在切到新代码…")
             # 关键：先把结果落盘，再等热重载——supervisor 大约 1 秒后就会
             # 重启本进程，晚于这一步写文件就来不及了，页面会一直转圈。
