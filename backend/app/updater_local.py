@@ -484,6 +484,8 @@ def _job(action, force):
 
 def _finish(t0, result):
     with LOCK:
+        if not JOB["running"] and JOB.get("result"):
+            return                          # 已经收过尾了，别重复记一遍
         if JOB["result"] != "fail":
             JOB["result"] = result
         JOB["running"] = False
