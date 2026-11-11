@@ -18,6 +18,7 @@ Windows 上双击「⑤ 版本服务.bat」等价于第一条。
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import threading
@@ -247,8 +248,30 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):       # 别把每个请求都打到控制台
         pass
 
+    def _origin_ok(self):
+        """只认本机和内网的页面来源。
+
+        它虽然只监听 127.0.0.1，但浏览器里任何一个网页都能往这个地址发请求；
+        不加判断的话，别人精心构造的页面也能让你不停地重建容器。
+        curl / 本机脚本不带 Origin，放行。
+        """
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        host = origin.split("//")[-1].split("/")[0]
+        host = host.split(":")[0].strip("[]").lower()
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return True
+        if host.startswith("192.168.") or host.startswith("10."):
+            return True
+        if re.match(r"172\.(1[6-9]|2\d|3[01])\.", host):
+            return True
+        return host.endswith(".local")
+
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin") or "*"
+        self.send_header("Access-Control-Allow-Origin", origin if origin != "*" else "*")
+        self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Private-Network", "true")
@@ -264,6 +287,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
+        if not self._origin_ok():
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(204)
         self._cors()
         self.end_headers()
@@ -277,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"ok": False, "error": "没有这个接口"}, 404)
 
     def do_POST(self):
+        if not self._origin_ok():
+            return self._json({"ok": False, "error": "来源不被允许"}, 403)
         path = self.path.split("?")[0]
         length = int(self.headers.get("Content-Length") or 0)
         try:
