@@ -53,7 +53,20 @@
         collectEnabled: true,
         apiMode: true,
         vh: window.innerHeight,
-        prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' }
+        prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' },
+
+        /* 页面：qq = 榜单，ver = 版本控制 */
+        page: 'qq',
+        verTimer: null,
+        ver: {
+          online: false,
+          loaded: false,
+          agent: {},
+          st: {},
+          auto: { enabled: false, interval_min: 60 },
+          job: { running: false, action: '', result: '', error: '', log: [], elapsed: 0 },
+          server: {}
+        }
       };
     },
 
@@ -182,7 +195,43 @@
         return '点一下，从模拟器里的 QQ阅读 抓一份最新榜单（23 个分类，约 3 分钟）。';
       },
 
-      drawerTotal() { return (this.ds.books || []).length || '—'; }
+      drawerTotal() { return (this.ds.books || []).length || '—'; },
+
+      /* ---------- 版本控制 ---------- */
+      vst() { return this.ver.st || {}; },
+
+      verNo() {
+        const s = this.vst;
+        return s.short ? 'v2.0 · ' + s.short : 'v2.0';
+      },
+
+      verSub() {
+        const s = this.vst;
+        if (!s.branch) return this.ver.online ? '正在读取…' : '更新服务没连上，下面是上次看到的版本';
+        return [s.branch, s.date, s.subject].filter(Boolean).join(' · ');
+      },
+
+      /* 侧边栏那个小圆点：落后几个提交就亮着，提醒该更新了 */
+      verBehind() {
+        return this.ver.online ? (this.vst.behind || 0) : 0;
+      },
+
+      verTag() {
+        const s = this.vst;
+        if (!this.ver.online) return { type: 'info', text: '未连接' };
+        if (s.error) return { type: 'warning', text: '检查失败' };
+        if (s.behind > 0) return { type: 'warning', text: '落后 ' + s.behind + ' 个提交' };
+        if (s.dirty) return { type: 'info', text: '已是最新（有本地改动）' };
+        return { type: 'success', text: '已是最新' };
+      },
+
+      verJobTitle() {
+        const j = this.ver.job || {};
+        if (j.running) return j.action === 'check' ? '正在问 GitHub…' : '正在更新 · 拉代码 → 重建 → 重启';
+        if (j.error) return '失败 · ' + j.error;
+        if (j.result === 'ok') return j.action === 'update' ? '更新完成' : '检查完成';
+        return '';
+      }
     },
 
     watch: {
@@ -218,6 +267,7 @@
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
+          else if (h === 'ver') this.openVer();
           /* 空库时服务正在自动采，先把进度接上再撤掉 loading，避免闪一下「没数据」 */
           await this.attachRunning();
         } catch (e) {
@@ -252,7 +302,12 @@
       },
 
       /* ---------- 榜单操作 ---------- */
-      onMenu(index) { if (index === 'qq') this.scrollTop(); },
+      onMenu(index) {
+        if (index === 'ver') { this.openVer(); return; }
+        this.page = 'qq';
+        this.stopVer();
+        this.scrollTop();
+      },
 
       onTab(name) {
         if (!this.boards[name]) { ElMessage.warning('这个榜单还没有数据'); return; }
@@ -465,6 +520,117 @@
           .catch(() => {});
       },
 
+      /* ---------- 版本控制 ----------
+       * 真正干活的是宿主上的 dev/agent.py：容器里没有 git、也没有 docker 权限，
+       * 拉代码和重建容器只能在宿主机做。这里只负责下指令 + 显示进度。
+       */
+      openVer() {
+        this.page = 'ver';
+        try { history.replaceState(null, '', '#ver'); } catch (e) {}
+        this.loadVer();
+      },
+
+      stopVer() {
+        if (this.verTimer) { clearTimeout(this.verTimer); this.verTimer = null; }
+      },
+
+      scheduleVer(ms) {
+        this.stopVer();
+        if (this.page !== 'ver') return;
+        this.verTimer = setTimeout(this.loadVer, ms);
+      },
+
+      async loadVer() {
+        let s = null;
+        try {
+          s = await WBAPI.agentState();
+        } catch (e) {
+          s = null;
+        }
+
+        if (s && s.ok) {
+          this.ver.online = true;
+          this.ver.agent = s.agent || {};
+          this.ver.st = s.status || {};
+          if (s.auto) Object.assign(this.ver.auto, s.auto);
+          this.ver.job = Object.assign({ log: [] }, s.job || {});
+          this.ver.server = s.local || {};
+        } else {
+          this.ver.online = false;
+          /* 连不上执行器时退回后端缓存：至少能看到「上次检查到的版本」 */
+          try {
+            const v = await WBAPI.version();
+            this.ver.server = v.server || {};
+            const c = v.cached || {};
+            if (c.status) this.ver.st = c.status;
+            if (c.auto) Object.assign(this.ver.auto, c.auto);
+            if (c.agent) this.ver.agent = c.agent;
+          } catch (e) { /* 后端也连不上就算了 */ }
+        }
+        this.ver.loaded = true;
+
+        /* 更新成功的最后一步：服务已经是新代码了，刷新一次把静态资源也换成新的 */
+        const j = this.ver.job || {};
+        if (this.page === 'ver' && j.result === 'ok' && j.action === 'update' && !this._verReloaded) {
+          this._verReloaded = true;
+          ElMessage.success('更新完成，正在刷新页面…');
+          setTimeout(() => location.reload(), 2600);
+        }
+
+        this.scheduleVer(j.running ? 1500 : 8000);
+      },
+
+      async checkUpdate() {
+        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        try {
+          await WBAPI.agentCheck();
+          ElMessage.info('正在问 GitHub，最多等半分钟（网络差时更久）');
+          this.scheduleVer(900);
+        } catch (e) {
+          if (e.status === 409) ElMessage.info(e.message || '已经有一个任务在跑');
+          else ElMessage.error('检查失败：' + (e.message || '连不上版本服务'));
+        }
+      },
+
+      async runUpdate() {
+        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        const behind = this.vst.behind || 0;
+        const dirty = this.vst.dirty;
+        const msg = (behind ? '要拉 ' + behind + ' 个提交，' : '没有新提交，会按当前代码重建一次，')
+          + '然后重建容器。页面会断开几秒再自动刷新，data/ 里的数据不受影响。'
+          + (dirty ? '\n\n⚠ 工作区有未提交改动，拉取可能失败；先 git stash 更稳。' : '');
+        try {
+          await ElMessageBox.confirm(msg, '立即更新部署', {
+            confirmButtonText: '开始更新', cancelButtonText: '算了', type: dirty ? 'warning' : 'info'
+          });
+        } catch (e) { return; }
+
+        try {
+          await WBAPI.agentUpdate(false);
+          this._verReloaded = false;
+          this.scheduleVer(800);
+        } catch (e) {
+          if (e.status === 409) ElMessage.info(e.message || '已经有一个任务在跑');
+          else ElMessage.error('没启动起来：' + (e.message || '连不上版本服务'));
+        }
+      },
+
+      async saveAuto() {
+        if (!this.ver.online) { ElMessage.warning('先启动版本服务：python dev/agent.py'); return; }
+        try {
+          const r = await WBAPI.agentAuto({
+            enabled: !!this.ver.auto.enabled,
+            interval_min: Number(this.ver.auto.interval_min) || 60
+          });
+          if (r && r.auto) Object.assign(this.ver.auto, r.auto);
+          ElMessage.success(this.ver.auto.enabled
+            ? '自动更新已开启，每 ' + this.ver.auto.interval_min + ' 分钟看一次'
+            : '自动更新已关闭');
+        } catch (e) {
+          ElMessage.error('设置没保存上：' + (e.message || '连不上版本服务'));
+        }
+      },
+
       showEnvHelp() {
         if (this.apiMode) {
           ElMessageBox.alert(
@@ -496,12 +662,14 @@
       window.addEventListener('resize', this._onResize);
       window.addEventListener('hashchange', () => {
         const h = (location.hash || '').replace('#', '');
-        if (this.boards[h] && h !== this.activeTab) this.activeTab = h;
+        if (h === 'ver') { if (this.page !== 'ver') this.openVer(); return; }
+        if (this.boards[h] && h !== this.activeTab) { this.page = 'qq'; this.activeTab = h; }
       });
     },
 
     beforeUnmount() {
       this.stopPoll();
+      this.stopVer();
       if (this._onResize) window.removeEventListener('resize', this._onResize);
     }
   });

@@ -128,6 +128,16 @@ python dev/update.py        # Windows 双击「④ 更新代码.bat」
 
 想看差几个版本、不想动任何东西：`python dev/update.py --check`。
 
+**不想碰命令行**就再开一个「版本服务」，页面左侧会多出「版本控制」：
+
+```bash
+python dev/agent.py         # Windows 双击「⑤ 版本服务.bat」
+```
+
+里面能看当前提交、落后几个版本、开关自动更新，点一下就能拉代码重建。
+它只监听本机 `127.0.0.1:8766`——容器里没有 git 和 docker 权限，
+真正动手的是宿主上的这个进程。`python dev/agent.py --install` 可注册开机自启。
+
 三种部署形态（挂载 / 纯镜像 / 裸机）的差别、回滚、升级前备份，见
 **[DEPLOY.md 更新到最新版](DEPLOY.md#更新到最新版)**。
 
@@ -167,7 +177,9 @@ python dev/update.py        # Windows 双击「④ 更新代码.bat」
 │  └─ vendor/                   Vue 3.5、Element Plus 2.9、图标、中文包（约 1.7MB）
 ├─ dev/                         开发与运维小工具
 │  ├─ supervisor.py             监听 .py 改动自动重启（容器里跑的就是它）
-│  └─ update.py                 一键更新：拉代码 → 重建 → 重启 → 探活
+│  ├─ updater.py                更新内核：查版本 / 拉代码 / 重建 / 探活
+│  ├─ update.py                 命令行一键更新
+│  └─ agent.py                  版本服务：页面上的更新按钮由它在宿主执行
 ├─ config.json                  采集端可选配置（模拟器方案的 adb 路径、设备序列号等）
 ├─ Dockerfile / docker-compose.yml
 ├─ data/                        运行时生成，不进仓库
@@ -178,7 +190,8 @@ python dev/update.py        # Windows 双击「④ 更新代码.bat」
 ├─ ① 看榜单.bat                 起服务 + 打开看板
 ├─ ② 采集数据.bat               接口采一轮并入账
 ├─ ③ 环境自检.bat               检查 Python / 网络 / 接口 / 本机服务
-└─ ④ 更新代码.bat               拉最新代码并重建容器
+├─ ④ 更新代码.bat               拉最新代码并重建容器
+└─ ⑤ 版本服务.bat               起更新服务，页面上的更新按钮靠它执行
 ```
 
 `data/`、`_legacy/`、`rev/`、`_qqreader/` 都在 `.gitignore` 里，克隆下来不会包含

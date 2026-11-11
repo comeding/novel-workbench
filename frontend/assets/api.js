@@ -47,6 +47,40 @@ const WBAPI = (function () {
     body: JSON.stringify(body || {})
   }, 60000);
 
+  /* ---------- 宿主更新服务（dev/agent.py） ----------
+   * 它不在这个域名下，而是本机的 127.0.0.1:8766：
+   * 容器里没有 git 和 docker 权限，拉代码、重建只能由宿主机来做。
+   * 页面从本机打开时能直连；从别的机器打开就是连不上，此时退回只读展示。
+   */
+  const AGENT = (function () {
+    const qs = new URLSearchParams(location.search);
+    let base = qs.get('agent') || localStorage.getItem('wb.agent') || 'http://127.0.0.1:8766';
+    return base.replace(/\/+$/, '');
+  })();
+
+  async function agent(path, opts, timeout) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout || 2500);
+    try {
+      const res = await fetch(AGENT + path, {
+        cache: 'no-store', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' }, ...opts
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = { error: text.slice(0, 200) }; }
+      if (!res.ok) {
+        const err = new Error((data && data.error) || ('HTTP ' + res.status));
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
     base: BASE,
     health: () => get('/api/health', null, 4000),
@@ -60,6 +94,13 @@ const WBAPI = (function () {
 
     collect: (boards) => post('/api/collect', { boards }),
     status: () => get('/api/collect/status', null, 10000),
-    cancel: () => post('/api/collect/cancel')
+    cancel: () => post('/api/collect/cancel'),
+
+    version: () => get('/api/version', null, 6000),
+    agentBase: AGENT,
+    agentState: () => agent('/api/state', {}, 2500),
+    agentCheck: () => agent('/api/check', { method: 'POST', body: '{}' }, 15000),
+    agentUpdate: (force) => agent('/api/update', { method: 'POST', body: JSON.stringify({ force: !!force }) }, 15000),
+    agentAuto: (body) => agent('/api/auto', { method: 'POST', body: JSON.stringify(body) }, 8000)
   };
 })();
