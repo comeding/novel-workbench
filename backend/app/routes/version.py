@@ -16,7 +16,7 @@ import os
 import urllib.error
 import urllib.request
 
-from .. import db, updater_local
+from .. import __version__, db, updater_local
 from ..config import Config, get_token
 from ..router import Router, json_response
 
@@ -87,9 +87,15 @@ def _busy(why):
 @router.get(r"/api/agent/state")
 def agent_state(req):
     if local_mode():
-        return json_response(updater_local.state())
-    payload, code = _call("/api/state", timeout=4)
-    return json_response(payload, code)
+        payload = updater_local.state()
+    else:
+        payload, code = _call("/api/state", timeout=4)
+        if code != 200:
+            return json_response(payload, code)
+    # 前端不用自己写死版本号，跟着后端走
+    if isinstance(payload, dict):
+        payload.setdefault("app_version", __version__)
+    return json_response(payload)
 
 
 @router.post(r"/api/agent/check")

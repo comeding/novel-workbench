@@ -60,9 +60,10 @@
         verTimer: null,
         ver: {
           online: false,
-          waiting: false,          /* 更新中容器在重建，这一两轮轮询失败属正常 */
+          waiting: false,          /* 更新中正在切代码，这一两轮轮询失败属正常 */
           loaded: false,
           err: '',
+          appVersion: '',
           agent: {},
           st: {},
           auto: { enabled: false, interval_min: 60 },
@@ -204,7 +205,9 @@
 
       verNo() {
         const s = this.vst;
-        return s.short ? 'v2.0 · ' + s.short : 'v2.0';
+        const v = this.ver.appVersion ? 'v' + this.ver.appVersion : '';
+        if (!s.short) return v || '—';
+        return v ? v + ' · ' + s.short : s.short;
       },
 
       verSub() {
@@ -563,6 +566,7 @@
           this.ver.err = '';
           this._verDownAt = 0;
           this.ver.agent = s.agent || {};
+          this.ver.appVersion = s.app_version || '';
           this.ver.st = s.status || {};
           if (s.auto) Object.assign(this.ver.auto, s.auto);
           this.ver.job = Object.assign({ log: [] }, s.job || {});

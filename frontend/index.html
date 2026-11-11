@@ -147,7 +147,7 @@
                   <div>
                     <div class="ver-k">自动更新</div>
                     <div class="ver-no sm">{{ ver.auto.enabled ? '已开启' : '已关闭' }}</div>
-                    <div class="ver-sub">开启后它自己去看有没有新版，有就拉下来重建</div>
+                    <div class="ver-sub">开启后它自己去看有没有新版，有就拉下来并生效</div>
                   </div>
                   <el-switch v-model="ver.auto.enabled" :disabled="!ver.online" @change="saveAuto"></el-switch>
                 </div>
