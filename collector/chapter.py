@@ -18,7 +18,8 @@ QQ阅读 网页版（book.qq.com）是服务端直出，不用登录、不用模
 付费章节：正文只有 200 字左右的试读片段，末尾是「...」，页面底部写着
           「登录订阅本章」。这不是抓取失败，是平台本来就只给这么多。
 
-所以这里如实返回 paid=True + 试读片段，前端会明确提示，不假装拿到了全文。
+拆书只做免费章节：目录照样整本拉（免费标记要靠整本的 token 分布来校准），
+但对外只列、只读免费的那几十章。付费章不展示，也不去请求。
 
 免费标记怎么来
 --------------
@@ -261,20 +262,22 @@ def mark_free(chapters, first_paid):
     """用第 1 章的实测结果反推所有章节的免费标记。
 
     chapters[0].token 就是第 1 章的 free 变量。若第 1 章是付费的，
-    说明另一个取值才代表免费。拿不到结论时一律返回 None（不确定）。
+    说明另一个取值才代表免费。拿不到结论时返回 None（不确定）。
+
+    free_token 为 "-" 表示整本都是付费章（一个免费章都没有）。
     """
     if not chapters or first_paid is None:
         return None
     tokens = {c["token"] for c in chapters}
     first = chapters[0]["token"]
     if len(tokens) == 1:
-        free_token = None if first_paid else first     # 整本同一状态
+        free_token = "-" if first_paid else first      # 整本同一状态
     elif first_paid:
         free_token = next(iter(tokens - {first}), None)
     else:
         free_token = first
     return {"free_token": free_token,
-            "free": [1 if (free_token is not None and c["token"] == free_token) else 0
+            "free": [1 if (free_token not in (None, "-") and c["token"] == free_token) else 0
                      for c in chapters]}
 
 
@@ -284,11 +287,17 @@ def main(argv):
         return 0
     bid = argv[0]
     toc = fetch_toc(bid)
-    print("%s · %s · 共 %d 章" % (toc["title"], toc["author"], len(toc["chapters"])))
-    for c in toc["chapters"][:8]:
-        print("  %-4d %s" % (c["no"], c["title"] or "(第 %d 章)" % c["no"]))
-    if len(toc["chapters"]) > 8:
-        print("  ...  最后：%s" % (toc["chapters"][-1]["title"] or "第 %d 章" % len(toc["chapters"])))
+    first = fetch_chapter(bid, 1)
+    info = mark_free(toc["chapters"], first["paid"])
+    free = [c for c, ok in zip(toc["chapters"], info["free"]) if ok] if info else []
+    print("%s · %s · 共 %d 章，免费 %d 章" % (
+        toc["title"], toc["author"], len(toc["chapters"]), len(free)))
+    if not free:
+        print("  这本没有免费章节（或校准失败），拆书页会是空的")
+    for c in free[:8]:
+        print("  %-5d %s" % (c["no"], c["title"] or "(第 %d 章)" % c["no"]))
+    if len(free) > 8:
+        print("  ...  最后一个免费章：第 %d 章" % free[-1]["no"])
 
     if "--read" in argv:
         i = argv.index("--read")

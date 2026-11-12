@@ -8,9 +8,9 @@
 
 免费 / 付费
 ----------
-免费章节能拿到完整正文；付费章节网页只给两百字左右的试读，末尾是省略号，
-页面底部写着「登录订阅本章」——这不是抓取失败，是平台只给这么多。
-所以接口如实返回 paid=true，正文只放试读片段，前端会写明原因。
+拆书只做免费章节。目录还是整本拉下来（免费标记要拿整本的 token 分布校准），
+但接口只返回免费的那几十章，正文也只读这些——付费章节网页本来只给两百字试读，
+列出来除了浪费点击没有别的用处。
 
 目录里每章有 free 字段，但 SSR 压缩后是变量名（free:a / free:d），值读不出来。
 抓第 1 章看它是免费还是付费，就能反推这个变量代表什么，一次请求标好全本。
@@ -72,18 +72,40 @@ def _text_row(bid, no):
                            (bid, no)).fetchone()
 
 
+def _free_flag(bid, no):
+    """目录里这一章的免费标记：1 免费 / 0 付费 / -1 没校准 / None 没这部书的目录。"""
+    with db.reader() as con:
+        row = con.execute("SELECT free FROM read_chapters WHERE bid = ? AND no = ?",
+                          (bid, no)).fetchone()
+    return None if row is None else row["free"]
+
+
 def _toc_json(bid, book, rows, cached):
+    """只把免费章节发给前端。
+
+    rows 里存的是整本目录（带 free 标记），这里筛一遍：免费 = 1，付费 = 0，
+    -1 表示当天没校准成功，一律先不给，让页面提示重抓目录，而不是混进付费章。
+    """
+    total = book["total"] or len(rows)
+    free = [r for r in rows if r["free"] == 1]
+    token = book["free_token"] or ""
+    warn = ""
+    if not token:
+        warn = "这本书的免费章节没标出来（第 1 章没抓到），点右上角「重抓目录」再试"
+    elif not free:
+        warn = "这本书没有免费章节，网页上只能看到付费章节"
     return {
         "ok": True,
         "cached": cached,
         "bid": bid,
         "title": book["title"] or "",
         "author": book["author"] or "",
-        "total": book["total"] or len(rows),
-        "free_count": book["free_count"] or 0,
-        "calibrated": bool(book["free_token"]),
+        "total": total,
+        "free_count": len(free),
+        "calibrated": bool(token),
         "fetched_at": book["fetched_at"] or "",
-        "chapters": [{"n": r["no"], "t": r["title"] or "", "f": r["free"]} for r in rows],
+        "chapters": [{"n": r["no"], "t": r["title"] or "", "f": 1} for r in free],
+        "warn": warn,
     }
 
 
@@ -211,6 +233,11 @@ def chapter(req):
     if no < 1:
         return json_response({"ok": False, "error": "章节号要从 1 开始"}, 400)
 
+    # 拆书只做免费章节。有人从旧记录/书签直接点进来时，这里拦一下，
+    # 免得把两百字试读当成正文展示。
+    if _free_flag(bid, no) == 0:
+        return json_response({"ok": False, "error": "这一章是付费章节，拆书只做免费章节"}, 403)
+
     if (req.arg("refresh") or "") not in ("1", "true", "yes"):
         row = _text_row(bid, no)
         if row:
@@ -231,6 +258,10 @@ def chapter(req):
 
     if not ch["paras"]:
         return json_response({"ok": False, "error": "这一章没有正文，可能在审核或已下架"}, 404)
+    if ch["paid"]:
+        # 目录说免费、正文页却只给试读，说明平台把这一章改成付费了，别缓存也别冒充
+        return json_response({"ok": False,
+                              "error": "这一章现在是付费章节，拆书只做免费章节"}, 403)
 
     _save_text(bid, ch)
     _touch(bid, no)

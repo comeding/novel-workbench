@@ -63,10 +63,11 @@
         /* 页面：qq = 榜单，read = 拆书，ver = 版本控制 */
         page: 'qq',
 
-        /* 拆书：左边目录，右边正文。目录可能有上万章，列表只渲染可视区那几十行 */
+        /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
+           所以列表只渲染可视区那几十行 */
         rd: {
           bid: '', title: '', author: '', total: 0, freeCount: 0,
-          chapters: [], tocLoading: false, err: '',
+          chapters: [], tocLoading: false, err: '', warn: '',
           q: '', no: 0, row: 34, scroll: 0, viewH: 620,
           textLoading: false,
           text: { title: '', paras: [], words: 0, paid: false },
@@ -216,6 +217,12 @@
       drawerTotal() { return (this.ds.books || []).length || '—'; },
 
       /* ---------- 拆书 ---------- */
+      /* 当前章在免费章节列表里的位置，-1 表示不在列表里（比如旧记录停在付费章） */
+      rdPos() {
+        const n = this.rd.no;
+        if (!n) return -1;
+        return (this.rd.chapters || []).findIndex(c => c.n === n);
+      },
       rdFiltered() {
         const all = this.rd.chapters || [];
         const q = (this.rd.q || '').trim().toLowerCase();
@@ -508,6 +515,7 @@
         rd.q = '';
         rd.scroll = 0;
         rd.err = '';
+        rd.warn = '';
         if (!sameBook) { rd.no = 0; rd.text = { title: '', paras: [], words: 0, paid: false }; }
         this.syncReadRow();
         await this.loadToc(false);
@@ -526,24 +534,30 @@
       async loadToc(refresh) {
         const rd = this.rd;
         if (!rd.bid || rd.tocLoading) return;
-        rd.tocLoading = true; rd.err = '';
+        rd.tocLoading = true; rd.err = ''; rd.warn = '';
         const want = rd.bid;
         try {
           const d = await WBAPI.readerToc(want, refresh);
           if (String(rd.bid) !== String(want)) return;      /* 抓的过程中切书了 */
           rd.title = d.title || rd.title;
           rd.author = d.author || '';
-          rd.total = d.total || (d.chapters || []).length;
+          rd.total = d.total || 0;
           rd.freeCount = d.free_count || 0;
-          rd.chapters = d.chapters || [];
+          rd.chapters = d.chapters || [];                   /* 后端只给免费章 */
+          rd.warn = d.warn || '';
           this.syncReadRow();
-          if (rd.chapters.length && !rd.no) {
+          if (rd.chapters.length) {
             let last = 0;
             try {
               const s = JSON.parse(localStorage.getItem('wb.read') || 'null');
               if (s && String(s.bid) === String(want)) last = Number(s.no) || 0;
             } catch (e) {}
-            this.openChapter(last > 0 && last <= rd.total ? last : 1);
+            /* 上次停在付费章（旧记录）就从头读，别去请求那一章 */
+            const ok = rd.chapters.some(c => c.n === last);
+            if (!rd.no || !ok) this.openChapter(ok ? last : rd.chapters[0].n);
+          } else if (rd.no) {
+            rd.no = 0;
+            rd.text = { title: '', paras: [], words: 0, paid: false };
           }
         } catch (e) {
           rd.err = (e && e.message) || '目录没抓到，可能是这本书在网页上看不到';
@@ -571,6 +585,8 @@
           this.scrollTocTo(no);
         } catch (e) {
           ElMessage.error('这一章没取到：' + ((e && e.message) || '网络问题'));
+          /* 拿不到的是付费章（不在免费列表里）就退回空态，别停在半截白页 */
+          if (this.rdPos < 0) { rd.no = 0; rd.text = { title: '', paras: [], words: 0, paid: false }; }
         } finally {
           if (rd.no === no) rd.textLoading = false;
         }

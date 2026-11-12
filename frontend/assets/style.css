@@ -473,10 +473,6 @@ body {
   flex: 1; min-width: 0; color: #3b4a6b;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rd-it.lock .t { color: #96a3bc; }
-.rd-it .tg { flex: none; font-style: normal; font-size: 10.5px; padding: 1px 5px; border-radius: 4px; }
-.rd-it .tg.free { color: #12a15c; background: #e9f8f0; }
-.rd-it .tg.paid { color: #b07a2a; background: #fdf3e3; }
 
 .rd-main {
   flex: 1; min-width: 0; overflow-y: auto;

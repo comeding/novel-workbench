@@ -107,7 +107,7 @@
         </div>
         <div class="right" v-else>
           <el-tag v-if="rd.bid" size="small" effect="plain" round class="chip">
-            {{ rd.freeCount || 0 }} / {{ rd.total || 0 }} 章免费
+            免费 {{ rd.freeCount || 0 }} 章
           </el-tag>
           <el-button v-if="rd.bid" plain size="small" @click="reloadToc">重抓目录</el-button>
         </div>
@@ -208,10 +208,10 @@
                   <h3>{{ rd.bid ? (rd.title || '书 ' + rd.bid) : '拆书' }}</h3>
                   <p v-if="rd.bid">
                     <span>{{ rd.author || '—' }}</span>
-                    <em v-if="rd.total">{{ rd.total }} 章</em>
-                    <em v-if="rd.total" class="ok">{{ rd.freeCount || 0 }} 章免费</em>
+                    <em class="ok" v-if="rd.freeCount">免费 {{ rd.freeCount }} 章</em>
+                    <em v-if="rd.total" class="dim">共 {{ rd.total }} 章</em>
                   </p>
-                  <p v-else class="dim">选一本书，看它的目录和免费章节</p>
+                  <p v-else class="dim">选一本书，看它的免费章节</p>
                 </div>
                 <el-tooltip v-if="rd.bid" content="重新抓一遍目录" placement="bottom">
                   <el-button circle text size="small" :loading="rd.tocLoading" @click="reloadToc">
@@ -240,18 +240,17 @@
                 <div class="rd-fill" :style="{ height: rdFiltered.length * rd.row + 'px' }">
                   <div class="rd-window" :style="{ transform: 'translateY(' + rdStart * rd.row + 'px)' }">
                     <div v-for="c in rdView" :key="c.n" class="rd-it"
-                         :class="{ on: c.n === rd.no, lock: c.f === 0 }" @click="openChapter(c.n)">
+                         :class="{ on: c.n === rd.no }" @click="openChapter(c.n)">
                       <span class="n">{{ c.n }}</span>
                       <span class="t">{{ c.t || ('第 ' + c.n + ' 章') }}</span>
-                      <i v-if="c.f === 1" class="tg free">免费</i>
-                      <i v-else-if="c.f === 0" class="tg paid">付费</i>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div v-else-if="rd.bid && !rd.q" class="rd-wait plain">
-                <span>这本暂时没抓到章节</span>
+                <span>{{ rd.warn || '这本暂时没抓到免费章节' }}</span>
+                <el-button size="small" plain @click="reloadToc">重抓目录</el-button>
               </div>
               <div v-else-if="rd.bid" class="rd-wait plain">
                 <span>没有匹配「{{ rd.q }}」的章节</span>
@@ -280,37 +279,35 @@
                   </svg>
                 </div>
                 <h3>从扫榜里挑一本开始</h3>
-                <p>扫榜列表里点书名打开详情，底部有「拆书」按钮。<br>拉下目录后点任意章节就能直接看正文。</p>
+                <p>扫榜列表里点书名打开详情，底部有「拆书」按钮。<br>目录里只列免费章节，点开就是全文。</p>
                 <div class="rd-steps">
                   <div><b>1</b><span>左侧「扫榜」选一本</span></div>
                   <div><b>2</b><span>详情里点「拆书」，抓目录</span></div>
-                  <div><b>3</b><span>点章节直接读，免费章节给全文</span></div>
+                  <div><b>3</b><span>点章节直接读全文</span></div>
                 </div>
               </div>
 
               <div v-else-if="!rd.no" class="rd-hello">
                 <h3>{{ rd.title }}</h3>
-                <p>左边挑一章开始。带「免费」标记的能看全文，带「付费」标记的只有试读片段。</p>
+                <p>左边挑一章开始。目录里都是免费章节，打开就是全文。</p>
               </div>
 
               <article v-else class="rd-read" v-loading="rd.textLoading" element-loading-text="正在取这一章…">
                 <h1>{{ rd.text.title || ('第 ' + rd.no + ' 章') }}</h1>
                 <div class="rd-meta">
                   <span v-if="rd.text.words" class="mono">{{ rd.text.words }} 字</span>
-                  <span v-if="rd.text.paid" class="warn">付费 · 仅试读</span>
-                  <span v-else-if="rd.text.words" class="ok">免费 · 全文</span>
+                  <span v-if="rd.text.words" class="ok">免费 · 全文</span>
                   <span class="sp"></span>
-                  <span class="dim mono">{{ rd.no }} / {{ rd.total || '?' }}</span>
+                  <span class="dim mono" v-if="rdPos >= 0">{{ rdPos + 1 }} / {{ rd.chapters.length }} 个免费章</span>
+                  <span class="dim mono" v-else>第 {{ rd.no }} 章</span>
                 </div>
-
-                <el-alert v-if="rd.text.paid" type="warning" :closable="false" show-icon class="rd-alert"
-                          title="这一章是付费章节，网页只给两百字左右的试读，完整内容要在 QQ阅读 App 里订阅"></el-alert>
 
                 <p v-for="(p, i) in rd.text.paras" :key="i">{{ p }}</p>
 
                 <div class="rd-nav">
-                  <el-button plain :disabled="rd.no <= 1" @click="openChapter(rd.no - 1)">上一章</el-button>
-                  <el-button plain :disabled="rd.no >= rd.total" @click="openChapter(rd.no + 1)">下一章</el-button>
+                  <el-button plain :disabled="rdPos <= 0" @click="openChapter(rd.chapters[rdPos - 1].n)">上一章</el-button>
+                  <el-button plain :disabled="rdPos < 0 || rdPos >= rd.chapters.length - 1"
+                             @click="openChapter(rd.chapters[rdPos + 1].n)">下一章</el-button>
                 </div>
               </article>
             </div>
