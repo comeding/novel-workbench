@@ -53,7 +53,8 @@
           <i class="pulse"></i>
           <div>
             <b>{{ collectEnabled ? '本机采集可用' : '只读模式' }}</b>
-            <span>{{ collectEnabled ? 'MuMu · Android 15' : '服务端不跑采集' }}</span>
+            <span v-if="!collectEnabled">服务端不跑采集</span>
+            <span v-else>{{ apiMode ? 'QQ阅读接口直连' : 'MuMu · 模拟器' }}</span>
           </div>
         </div>
       </div>
@@ -351,7 +352,7 @@
                 <template #header><span class="th" @click="sortBy('n')">加入书架<i class="ar" :class="arrow('n')"></i></span></template>
                 <template #default="{ row }">
                   <span class="mono shelf"
-                        :title="row.sh ? row.sh + ' 加入书架' : '暂无详情数据，显示榜单热度 ' + $fmt.exact(row.n)">
+                        :title="row.sh ? row.sh + ' 人加入书架（详情页快照）' : '还没采到这本书的详情，加书架数未知；榜单热度 ' + $fmt.exact(row.n)">
                     {{ $fmt.shelf(row) }}
                   </span>
                 </template>
@@ -409,7 +410,7 @@
         </div>
         <div class="dr-cell">
           <div class="k">加入书架</div>
-          <div class="v">{{ $fmt.shelf(current) }}<small>{{ current.sh ? '人' : '榜单热度' }}</small></div>
+          <div class="v" :title="current.sh ? current.sh + ' 人加入书架（详情页快照）' : '还没采到这本书的详情'">{{ $fmt.shelf(current) }}<small>{{ current.sh ? '人' : '未采到' }}</small></div>
         </div>
         <div class="dr-cell">
           <div class="k">新增收藏</div>

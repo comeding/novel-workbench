@@ -192,6 +192,7 @@ def _scheduler(push_url, every):
                     print("  定时采集    %s" % ("已开始" if ok else "跳过：%s" % err),
                           flush=True)
                 _shelf_snapshot(push_url)
+                _detail_backfill(push_url)
         except Exception as e:                   # noqa: BLE001
             print("  定时采集    出错：%s" % e, flush=True)
         time.sleep(every)
@@ -229,6 +230,44 @@ def _shelf_snapshot(push_url):
         print("  书架快照    超时（15 分钟没跑完）", flush=True)
     except Exception as e:                       # noqa: BLE001
         print("  书架快照    出错：%s" % e, flush=True)
+
+
+def _detail_backfill(push_url):
+    """给还没有「加入书架」数的书补一遍详情。
+
+    榜单接口只给 num（排序值），真实的加书架数在书籍详情页。每轮采集都会
+    带进新书，不补这一趟，页面那一列就只能显示「—」。只补缺的，每轮最多
+    DETAIL_LIMIT 本，跑在调度线程里，不挡采集。
+    """
+    if not os.path.exists(Config.DETAIL_SCRIPT):
+        return
+    try:
+        with db.reader() as con:
+            row = con.execute("SELECT COUNT(*) AS n FROM books "
+                              "WHERE shelf_num IS NULL OR shelf_num = 0").fetchone()
+        missing = int((row["n"] if row else 0) or 0)
+    except Exception as e:                       # noqa: BLE001
+        print("  详情补采    查库失败：%s" % e, flush=True)
+        return
+    if missing <= 0:
+        return
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    env["WB_DB"] = Config.DB_PATH
+    cmd = [sys.executable, "-u", Config.DETAIL_SCRIPT, "--push", push_url,
+           "--token", get_token(), "--limit", str(Config.DETAIL_LIMIT)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=1800, env=env)
+        lines = [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
+        print("  详情补采    待补 %d 本 · %s"
+              % (missing, lines[-1] if lines else "退出码 %s" % r.returncode),
+              flush=True)
+    except subprocess.TimeoutExpired:
+        print("  详情补采    超时（30 分钟没跑完）", flush=True)
+    except Exception as e:                       # noqa: BLE001
+        print("  详情补采    出错：%s" % e, flush=True)
 
 
 @router.post(r"/api/collect")

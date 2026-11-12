@@ -17,8 +17,10 @@
     if (n < 10000) return exact(n);
     return (Math.floor(n / 1000) / 10).toFixed(1) + '万';
   };
-  const shelfVal = b => (b && (b.shn || b.n)) || 0;   // 排序 / 比例条用的整数
-  const shelfOf = b => (b && b.sh) || (b && b.n ? wan(b.n) : '—');
+  const shelfVal = b => (b && b.shn) || 0;            // 排序 / 比例条用的整数
+  /* 只认详情页抓来的加书架数。以前没抓到时拿榜单热度顶上，
+     同一个「加入书架」列里混着两种口径，看到 6288 会以为收藏真有一万。 */
+  const shelfOf = b => (b && b.sh) || '—';
 
   async function loadDataset() {
     let last;
