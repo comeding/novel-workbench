@@ -49,6 +49,7 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 - 按分类筛选、按书名或作者搜索
 - 按排名、热度、字数、加入书架人数排序
 - 分页浏览，点击书名看详情（简介、标签、**近 24 小时新增收藏**、它在各榜单里的当前位置）
+- 左侧「拆书」：详情里点「拆书」拉下这本书的目录，点章节直接读正文
 - 一键导出当前结果
 - 页面上直接触发采集并显示进度（仅本机可用）
 
@@ -182,10 +183,10 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 │  │  ├─ main.py                HTTP 服务 + 静态文件 + gzip + 路由分发
 │  │  ├─ config.py              全部配置走环境变量，本机与容器共用一套
 │  │  ├─ db.py                  SQLite 连接、建表、统计
-│  │  ├─ schema.sql             五张表的定义
+│  │  ├─ schema.sql             表定义（榜单 + 拆书缓存）
 │  │  ├─ auth.py                上报鉴权（X-Token）
 │  │  ├─ router.py              极简路由
-│  │  ├─ routes/                health / boards / books / runs / ingest / collect
+│  │  ├─ routes/                health / boards / books / runs / ingest / collect / reader
 │  │  └─ services/              入库事务、采集进程管理、详情补采
 │  └─ tools/                    import_legacy.py（重放 json）、backfill_exact.py（补精确字数）
 ├─ collector/                   采集端
@@ -194,6 +195,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 │  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
 │  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
 │  ├─ detail.py                 加入书架人数补采（走网页版）
+│  ├─ chapter.py                拆书：抓目录和章节正文，也能单独跑
 │  ├─ shelf_snapshot.py         每日书架数快照，供「近 24 小时新增收藏」做差
 │  ├─ push.py                   单份 json 上报
 │  ├─ env.py                    ADB / MuMu / 设备 / root / 分辨率 探测与自检（仅模拟器方案）
@@ -384,6 +386,47 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 
 ---
 
+## 拆书：看目录和正文
+
+扫榜列表里点书名 → 详情底部「拆书」，或者左侧菜单点「拆书」（会自动接上上次读的那本）。
+左边是目录，右边是正文，点章节直接看。
+
+数据来自 QQ阅读 网页版，不用登录、不用模拟器：
+
+```
+目录  https://book.qq.com/book-chapter/{bid}      一次给全书（实测 1.3 万章也一次拿完）
+正文  https://book.qq.com/book-read/{bid}/{第几章}  免费章节给全文
+```
+
+两个页面都是服务端直出，章节列表和正文原本就内嵌在 HTML 里，直接解析即可。
+
+**免费章节能看全文，付费章节只有试读。** 这是平台本身的限制，不是抓取失败：
+
+| | 免费章节 | 付费章节 |
+| --- | --- | --- |
+| 正文 | 完整，两千字左右 | 只有两百字试读，末尾是省略号 |
+| 页面提示 | 无 | 「登录订阅本章」「上QQ阅读APP看后续」 |
+
+所以拆书页在付费章节上方会明确写一行提示，右下角也标「付费 · 仅试读」，不假装拿到了全文。
+要读完整内容只能在 QQ阅读 App 里订阅。
+
+**目录里的免费标记怎么来的。** 每章虽然有 `free` 字段，但网页直出时被压缩成变量名
+（`free:a` / `free:d`），值读不出来。抓第 1 章看它是免费还是付费，就能反推出这个变量代表什么，
+一次请求标好全本。实测《校花的贴身高手》13297 章里标出 38 章免费，抽查第 30/31 章、
+308/309 章的边界都和实际一致。
+
+目录和正文都缓存在库里（`read_books` / `read_chapters` / `read_text`），
+所以第二次打开是秒开的。新章节出来了点页面右上角「重抓目录」。
+
+命令行也能用：
+
+```bash
+python collector/chapter.py 61592341            # 看目录
+python collector/chapter.py 61592341 --read 1   # 看第 1 章
+```
+
+---
+
 ## 配置
 
 ### config.json（采集端，可选）
@@ -438,6 +481,9 @@ POST /api/details                         书籍详情上报（加入书架人�
 POST /api/collect                         触发本机采集
 GET  /api/collect/status                  采集进度 + 日志尾部
 POST /api/collect/cancel                  中止
+GET  /api/reader/{bid}/toc                拆书：目录（?refresh=1 重抓）
+GET  /api/reader/{bid}/chapter/{no}       拆书：某一章正文（?refresh=1 重抓）
+GET  /api/reader/history                  拆书：最近读过的书
 ```
 
 `key` 取值：`vip`（会员榜）、`new`（新书榜）。
@@ -459,6 +505,15 @@ POST /api/collect/cancel                  中止
 | `entries` | 当前在榜记录，`(榜单, 分类, 书)` 唯一，存名次与指标 |
 | `shelf_history` | 书架数的历史快照，`(bid, at)` 唯一；唯一一张**不覆盖**的表，只增不改，用来算新增收藏 |
 | `runs` | 采集日志（什么时候采的、多少条），删了不影响数据 |
+
+拆书另有四张缓存表，和榜单数据互不影响，删掉只是下次重新抓一遍：
+
+| 表 | 说明 |
+| --- | --- |
+| `read_books` | 一本书的目录概要：书名、作者、总章数、免费章数、校准用的标记 |
+| `read_chapters` | 章节目录：第几章、章节名、是否免费 |
+| `read_text` | 正文缓存：免费章节存全文，付费章节存试读片段（`paid=1`） |
+| `read_history` | 最近读过的书，拆书页空态时列出来 |
 
 入库是**按分类覆盖**：本次采到的分类，先清空该分类的旧 `entries` 再写新的；
 本次没采到的分类原样保留。所以中途失败只影响采到的那部分，不会把整榜清空。
@@ -553,6 +608,8 @@ curl -O https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js
 - 采集对象是 QQ阅读 **公开可见的榜单数据**，不涉及登录凭据、不读取用户隐私内容。
   接口无签名，但请自觉控制频率：一轮 15 秒、32 个请求，日常几小时一次足够，
   别写循环去压它。
+- 拆书读的是网页版**游客就能看的正文**：免费章节给全文，付费章节平台只给两百字试读。
+  本项目不绕过任何付费墙，付费章节在页面上会明确标注，要看全文请到 App 里订阅。
 - 项目仅供个人研究与选题参考，请遵守 QQ阅读 的用户协议，不要用于商业转载或数据倒卖。
 - 榜单口径、分类划分都归平台方所有，本项目只做本地留存与展示。
 - `rev/`、`_qqreader/`、`_legacy/`、`_scan/` 是开发期留下的调试资料，不在仓库内，与运行无关。

@@ -421,3 +421,147 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ver-item .t { flex: none; font-size: 12px; color: #97a3bd; }
+
+/* ==========================================================================
+   拆书：左目录 + 右正文
+   目录可能是上万章，所以列表只渲染可视区那几十行（行高固定 34px）。
+   ========================================================================== */
+
+.rd { display: flex; gap: 16px; height: calc(100vh - 96px); min-height: 420px; }
+.body.dense .rd { height: calc(100vh - 90px); }
+
+.rd-side {
+  width: 296px; flex: none; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+}
+
+.rd-hd { display: flex; align-items: flex-start; gap: 8px; padding: 14px 12px 10px; }
+.rd-name { flex: 1; min-width: 0; }
+.rd-name h3 {
+  margin: 0; font-size: 14.5px; font-weight: 650; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rd-name p {
+  margin: 5px 0 0; font-size: 12px; color: var(--dim);
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.rd-name p em { font-style: normal; }
+.rd-name p em.ok { color: #12a15c; }
+
+.rd-q { padding: 0 12px 10px; }
+.rd-q .el-input__wrapper { border-radius: 8px; }
+
+.rd-list { flex: 1; overflow-y: auto; overflow-x: hidden; border-top: 1px solid var(--line); }
+.rd-list::-webkit-scrollbar { width: 8px; }
+.rd-list::-webkit-scrollbar-thumb { background: #dde6f6; border-radius: 8px; }
+.rd-fill { position: relative; }
+.rd-window { position: absolute; top: 0; left: 0; right: 0; }
+
+.rd-it {
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+  font-size: 12.8px; cursor: pointer; border-left: 2px solid transparent;
+}
+.rd-it:hover { background: #f5f8fe; }
+.rd-it.on { background: #eef4ff; border-left-color: var(--blue); }
+.rd-it.on .t { color: var(--blue); font-weight: 600; }
+.rd-it .n {
+  flex: none; width: 42px; color: #aab7d0;
+  font-variant-numeric: tabular-nums; font-size: 11.5px;
+}
+.rd-it .t {
+  flex: 1; min-width: 0; color: #3b4a6b;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rd-it.lock .t { color: #96a3bc; }
+.rd-it .tg { flex: none; font-style: normal; font-size: 10.5px; padding: 1px 5px; border-radius: 4px; }
+.rd-it .tg.free { color: #12a15c; background: #e9f8f0; }
+.rd-it .tg.paid { color: #b07a2a; background: #fdf3e3; }
+
+.rd-main {
+  flex: 1; min-width: 0; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.rd-main::-webkit-scrollbar { width: 10px; }
+.rd-main::-webkit-scrollbar-thumb { background: #e2e9f6; border-radius: 10px; }
+
+.rd-read { max-width: 760px; margin: 0 auto; padding: 40px 40px 64px; }
+.rd-read h1 {
+  margin: 0 0 14px; font-size: 21px; font-weight: 650;
+  letter-spacing: -.2px; line-height: 1.45;
+}
+.rd-meta {
+  display: flex; align-items: center; gap: 12px; font-size: 12px;
+  color: var(--dim); padding-bottom: 16px; margin-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.rd-meta .sp { flex: 1; }
+.rd-meta .ok { color: #12a15c; }
+.rd-meta .warn { color: #d98324; }
+.rd-read p {
+  margin: 0 0 .88em; font-size: 16px; line-height: 1.95;
+  color: #26324d; text-indent: 2em; letter-spacing: .2px; word-break: break-word;
+}
+.rd-alert { margin-bottom: 20px; border-radius: 10px; }
+.rd-nav {
+  display: flex; gap: 10px; justify-content: center;
+  margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line);
+}
+
+.rd-hello {
+  height: 100%; padding: 40px; text-align: center; color: var(--dim);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.rd-hello .ico { width: 54px; height: 54px; color: #b9c8e4; margin-bottom: 14px; }
+.rd-hello .ico svg { width: 100%; height: 100%; }
+.rd-hello h3 { margin: 0 0 8px; font-size: 16px; color: var(--ink); }
+.rd-hello p { margin: 0; font-size: 13px; line-height: 1.9; }
+.rd-steps {
+  display: flex; gap: 10px; margin-top: 24px;
+  flex-wrap: wrap; justify-content: center;
+}
+.rd-steps > div {
+  display: flex; align-items: center; gap: 7px; padding: 8px 12px;
+  background: #f6f9ff; border: 1px solid #e9f0fd; border-radius: 9px;
+  font-size: 12.5px; color: #47557a;
+}
+.rd-steps b {
+  width: 17px; height: 17px; border-radius: 50%; background: #dbe6ff;
+  color: var(--blue); font-size: 11px; display: grid; place-items: center;
+}
+
+.rd-wait {
+  flex: 1; padding: 30px; color: var(--dim); font-size: 13px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+}
+.rd-wait.plain { flex: none; padding: 40px 20px; }
+.rd-wait small { font-size: 11.5px; color: #aab7d0; }
+.spin {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid #dbe6ff; border-top-color: var(--blue);
+  animation: rdspin .8s linear infinite;
+}
+@keyframes rdspin { to { transform: rotate(360deg); } }
+
+.rd-fail { padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+.rd-fail .el-button { align-self: flex-start; }
+
+.rd-recent { padding: 12px; border-top: 1px solid var(--line); }
+.rd-recent .lbl { font-size: 11.5px; color: var(--dim); margin-bottom: 8px; }
+.rd-recent .dim.tiny { font-size: 12px; color: var(--dim); padding: 4px; }
+.rd-recent .rc { padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+.rd-recent .rc:hover { background: #f5f8fe; }
+.rd-recent .rc b {
+  display: block; font-size: 12.5px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rd-recent .rc span {
+  display: block; margin-top: 2px; font-size: 11.5px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .rd-side { width: 250px; }
+  .rd-read { padding: 28px 24px 48px; }
+}

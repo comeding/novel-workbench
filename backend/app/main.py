@@ -16,14 +16,14 @@ from urllib.parse import parse_qs, urlparse
 from . import __version__, db, updater_local
 from .config import Config
 from .router import Request, Router, json_response
-from .routes import boards, books, collect, ingest, runs, system, version
+from .routes import boards, books, collect, ingest, reader, runs, system, version
 
 VERSION = __version__
 
 
 def build_router():
     r = Router()
-    for mod in (system, boards, books, runs, ingest, collect, version):
+    for mod in (system, boards, books, runs, ingest, collect, version, reader):
         r.routes.extend(mod.router.routes)
     return r
 

@@ -112,6 +112,13 @@ const WBAPI = (function () {
     cancel: () => post('/api/collect/cancel'),
 
     version: () => get('/api/version', null, 6000),
+
+    /* 拆书：目录第一次要现抓（长篇一万多章约两秒），给足超时 */
+    readerToc: (bid, refresh) => get('/api/reader/' + encodeURIComponent(bid) + '/toc',
+                                     refresh ? { refresh: 1 } : null, 90000),
+    readerChapter: (bid, no) => get('/api/reader/' + encodeURIComponent(bid) + '/chapter/' +
+                                    encodeURIComponent(no), null, 45000),
+    readerHistory: () => get('/api/reader/history', null, 8000),
     agentBase: AGENT,
     /* 走的是看板后端代理，多一跳（浏览器 → 后端 → 宿主机），
      * 2.5 秒在网络不好时不够用，给到 8 秒。 */

@@ -60,8 +60,18 @@
         vh: window.innerHeight,
         prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' },
 
-        /* 页面：qq = 榜单，ver = 版本控制 */
+        /* 页面：qq = 榜单，read = 拆书，ver = 版本控制 */
         page: 'qq',
+
+        /* 拆书：左边目录，右边正文。目录可能有上万章，列表只渲染可视区那几十行 */
+        rd: {
+          bid: '', title: '', author: '', total: 0, freeCount: 0,
+          chapters: [], tocLoading: false, err: '',
+          q: '', no: 0, row: 34, scroll: 0, viewH: 620,
+          textLoading: false,
+          text: { title: '', paras: [], words: 0, paid: false },
+          recent: []
+        },
         verTimer: null,
         ver: {
           online: false,
@@ -205,6 +215,24 @@
 
       drawerTotal() { return (this.ds.books || []).length || '—'; },
 
+      /* ---------- 拆书 ---------- */
+      rdFiltered() {
+        const all = this.rd.chapters || [];
+        const q = (this.rd.q || '').trim().toLowerCase();
+        if (!q) return all;
+        const asNo = /^\d+$/.test(q) ? Number(q) : 0;
+        return all.filter(c => (asNo && c.n === asNo)
+          || String(c.t || '').toLowerCase().includes(q));
+      },
+      /* 可视区从第几条开始：往上多留 6 行，滚动时不至于白一下 */
+      rdStart() {
+        return Math.max(0, Math.floor(this.rd.scroll / this.rd.row) - 6);
+      },
+      rdView() {
+        const n = Math.ceil((this.rd.viewH || 620) / this.rd.row) + 12;
+        return this.rdFiltered.slice(this.rdStart, this.rdStart + n);
+      },
+
       /* ---------- 版本控制 ---------- */
       vst() { return this.ver.st || {}; },
 
@@ -308,7 +336,11 @@
       },
 
       openFromQuery() {
-        const bid = new URLSearchParams(location.search).get('open');
+        const sp = new URLSearchParams(location.search);
+        /* ?read=书籍ID 直接进拆书页，方便收藏和分享某一本 */
+        const readBid = sp.get('read');
+        if (readBid) { this.openReader(readBid, ''); return; }
+        const bid = sp.get('open');
         if (!bid) return;
         for (const k of ['vip', 'new']) {
           const b = this.boards[k]; if (!b) continue;
@@ -321,6 +353,7 @@
       /* ---------- 榜单操作 ---------- */
       onMenu(index) {
         if (index === 'ver') { this.openVer(); return; }
+        if (index === 'read') { this.openRead(); return; }
         this.page = 'qq';
         this.stopVer();
         this.scrollTop();
@@ -333,7 +366,7 @@
       },
 
       scrollTop() {
-        const el = this.$el.querySelector('.body');
+        const el = document.querySelector('.body');
         if (el) el.scrollTop = 0;
       },
 
@@ -441,6 +474,132 @@
         } else {
           ElMessage.info('书籍 ID：' + bid);
         }
+      },
+
+      /* ---------- 拆书 ----------
+       * 目录和正文都由后端抓（容器里直连 book.qq.com），前端只负责翻。
+       * 免费章节给全文，付费章节后端只拿得到两百字试读，会返回 paid=true。
+       */
+      openRead() {
+        this.page = 'read';
+        this.stopVer();
+        this.loadRecent();
+        /* 上次读到哪，回来就接着哪，不用每次重新点书 */
+        if (!this.rd.bid) {
+          let last = null;
+          try { last = JSON.parse(localStorage.getItem('wb.read') || 'null'); } catch (e) {}
+          if (last && last.bid) this.openReader(last.bid, '');
+        }
+      },
+
+      async openReader(bid, title) {
+        if (!bid) return;
+        this.drawer = false;
+        this.page = 'read';
+        this.stopVer();
+        const rd = this.rd;
+        const sameBook = String(rd.bid) === String(bid);
+        rd.bid = String(bid);
+        rd.title = title || (sameBook ? rd.title : '');
+        rd.author = sameBook ? rd.author : '';
+        rd.total = sameBook ? rd.total : 0;
+        rd.freeCount = sameBook ? rd.freeCount : 0;
+        rd.chapters = sameBook ? rd.chapters : [];
+        rd.q = '';
+        rd.scroll = 0;
+        rd.err = '';
+        if (!sameBook) { rd.no = 0; rd.text = { title: '', paras: [], words: 0, paid: false }; }
+        this.syncReadRow();
+        await this.loadToc(false);
+      },
+
+      /* 目录行高写死 34px，虚拟列表要靠它算位置 */
+      syncReadRow() {
+        this.$nextTick(() => {
+          const el = this.$refs.rdList;
+          if (el) { this.rd.viewH = el.clientHeight; this.rd.scroll = el.scrollTop; }
+        });
+      },
+
+      reloadToc() { this.loadToc(true); },
+
+      async loadToc(refresh) {
+        const rd = this.rd;
+        if (!rd.bid || rd.tocLoading) return;
+        rd.tocLoading = true; rd.err = '';
+        const want = rd.bid;
+        try {
+          const d = await WBAPI.readerToc(want, refresh);
+          if (String(rd.bid) !== String(want)) return;      /* 抓的过程中切书了 */
+          rd.title = d.title || rd.title;
+          rd.author = d.author || '';
+          rd.total = d.total || (d.chapters || []).length;
+          rd.freeCount = d.free_count || 0;
+          rd.chapters = d.chapters || [];
+          this.syncReadRow();
+          if (rd.chapters.length && !rd.no) {
+            let last = 0;
+            try {
+              const s = JSON.parse(localStorage.getItem('wb.read') || 'null');
+              if (s && String(s.bid) === String(want)) last = Number(s.no) || 0;
+            } catch (e) {}
+            this.openChapter(last > 0 && last <= rd.total ? last : 1);
+          }
+        } catch (e) {
+          rd.err = (e && e.message) || '目录没抓到，可能是这本书在网页上看不到';
+        } finally {
+          rd.tocLoading = false;
+        }
+      },
+
+      async openChapter(no) {
+        const rd = this.rd;
+        no = Number(no) || 0;
+        if (!rd.bid || no < 1) return;
+        rd.no = no;
+        rd.textLoading = true;
+        rd.text = { title: '', paras: [], words: 0, paid: false };
+        try { localStorage.setItem('wb.read', JSON.stringify({ bid: rd.bid, no })); } catch (e) {}
+        try {
+          const d = await WBAPI.readerChapter(rd.bid, no);
+          if (rd.no !== no) return;                        /* 连点时只认最后一次 */
+          rd.text = { title: d.title || '', paras: d.paras || [],
+                      words: d.words || 0, paid: !!d.paid };
+          /* 这个页面有两个根节点（主体 + 抽屉），this.$el 不是元素节点，只能走 document */
+          const el = document.querySelector('.rd-main');
+          if (el) el.scrollTop = 0;
+          this.scrollTocTo(no);
+        } catch (e) {
+          ElMessage.error('这一章没取到：' + ((e && e.message) || '网络问题'));
+        } finally {
+          if (rd.no === no) rd.textLoading = false;
+        }
+      },
+
+      onRdScroll(e) {
+        this.rd.scroll = e.target.scrollTop;
+        this.rd.viewH = e.target.clientHeight;
+      },
+
+      /* 用「下一章」翻到看不见的地方时，把目录滚到当前章，别让左边停在开头 */
+      scrollTocTo(no) {
+        this.$nextTick(() => {
+          const list = this.$refs.rdList;
+          if (!list) return;
+          const idx = this.rdFiltered.findIndex(c => c.n === no);
+          if (idx < 0) return;
+          const top = idx * this.rd.row;
+          const view = list.clientHeight;
+          if (top >= list.scrollTop && top + this.rd.row <= list.scrollTop + view) return;
+          list.scrollTop = Math.max(0, top - view / 2 + this.rd.row / 2);
+          this.rd.scroll = list.scrollTop;
+        });
+      },
+
+      loadRecent() {
+        WBAPI.readerHistory().then(d => {
+          this.rd.recent = (d && d.items) || [];
+        }).catch(() => {});
       },
 
       /* ---------- 采集 ---------- */
@@ -727,7 +886,10 @@
     mounted() {
       this.boot();
       this.syncSize();
-      this._onResize = () => { this.vh = window.innerHeight; };
+      this._onResize = () => {
+        this.vh = window.innerHeight;
+        if (this.page === 'read') this.syncReadRow();
+      };
       window.addEventListener('resize', this._onResize);
       window.addEventListener('hashchange', () => {
         const h = (location.hash || '').replace('#', '');

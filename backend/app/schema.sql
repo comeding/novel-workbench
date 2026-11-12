@@ -99,3 +99,49 @@ CREATE TABLE IF NOT EXISTS shelf_history (
 
 CREATE INDEX IF NOT EXISTS ix_shelf_hist ON shelf_history (bid, at);
 
+-- ---------- 拆书：目录与正文 ----------
+--
+-- 目录来自 book.qq.com/book-chapter/{bid}，一次给全书（一万多章也能一次拿完）。
+-- 正文来自 /book-read/{bid}/{no}，免费章节给全文，付费章节只有两百字试读。
+-- 两份都缓存下来：目录页七百多 KB，没有理由每次点都重新拉。
+
+-- 一本书的目录概要
+CREATE TABLE IF NOT EXISTS read_books (
+    bid        TEXT PRIMARY KEY,
+    title      TEXT,
+    author     TEXT,
+    total      INTEGER,                     -- 章节数
+    free_count INTEGER,                     -- 免费章节数（校准后）
+    free_token TEXT,                        -- 目录里代表「免费」的标记，空 = 没校准出来
+    fetched_at TEXT                         -- 目录抓取时间
+);
+
+-- 章节目录：只存名称和免费标记，正文另表
+CREATE TABLE IF NOT EXISTS read_chapters (
+    bid    TEXT NOT NULL,
+    no     INTEGER NOT NULL,                -- 第几章，从 1 开始，直接拼进阅读页地址
+    title  TEXT,
+    free   INTEGER DEFAULT 0,               -- 1 免费 / 0 付费
+    at     TEXT,                            -- 发布时间
+    PRIMARY KEY (bid, no)
+);
+
+-- 正文缓存：免费章节存全文，付费章节存试读片段（paid=1）
+CREATE TABLE IF NOT EXISTS read_text (
+    bid        TEXT NOT NULL,
+    no         INTEGER NOT NULL,
+    title      TEXT,
+    paras      TEXT,                        -- JSON 数组，一个元素一段
+    words      INTEGER,
+    paid       INTEGER DEFAULT 0,
+    fetched_at TEXT,
+    PRIMARY KEY (bid, no)
+);
+
+-- 最近读过的书，拆书页空态时列出来
+CREATE TABLE IF NOT EXISTS read_history (
+    bid  TEXT PRIMARY KEY,
+    no   INTEGER,
+    at   TEXT
+);
+
