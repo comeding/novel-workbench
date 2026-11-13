@@ -368,7 +368,7 @@
               <div class="hero-tags">
                 <el-tag effect="light" round>按分类整榜覆盖</el-tag>
                 <el-tag effect="light" round type="success">只保留最新一版</el-tag>
-                <el-tag effect="light" round type="warning">加入书架取自详情页</el-tag>
+                <el-tag effect="light" round type="warning">加入书架 / 催更取自书页</el-tag>
               </div>
             </div>
             <div class="hero-art" aria-hidden="true">
@@ -501,6 +501,15 @@
                 </template>
               </el-table-column>
 
+              <el-table-column width="96">
+                <template #header><span class="th" @click="sortBy('u')">催更<i class="ar" :class="arrow('u')"></i></span></template>
+                <template #default="{ row }">
+                  <span class="mono" :title="row.ug ? '书籍末页显示的催更次数：' + $fmt.exact(row.ug) + ' 次' : '还没采到这本书的催更数'">
+                    {{ row.ug ? $fmt.exact(row.ug) : '—' }}
+                  </span>
+                </template>
+              </el-table-column>
+
               <el-table-column label="徽章" width="132">
                 <template #default="{ row }">
                   <el-tag v-if="row.bg" type="danger" effect="light" size="small" round>{{ row.bg }}</el-tag>
@@ -554,6 +563,10 @@
         <div class="dr-cell">
           <div class="k">加入书架</div>
           <div class="v" :title="current.sh ? current.sh + ' 人加入书架（详情页快照）' : '还没采到这本书的详情'">{{ $fmt.shelf(current) }}<small>{{ current.sh ? '人' : '未采到' }}</small></div>
+        </div>
+        <div class="dr-cell">
+          <div class="k">催更</div>
+          <div class="v" :title="current.ug ? '书籍末页（翻到最后一章）显示的催更次数：' + $fmt.exact(current.ug) + ' 次' : '还没采到这本书的催更数'">{{ current.ug ? $fmt.exact(current.ug) : '—' }}<small>{{ current.ug ? '次' : '未采到' }}</small></div>
         </div>
         <div class="dr-cell">
           <div class="k">新增收藏</div>

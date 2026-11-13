@@ -13,7 +13,8 @@ COLS = (" e.cat, e.bid, e.rank AS r, e.words AS w, e.words_exact AS wx,"
         " e.collect_num AS n, e.badge AS bg,"
         " e.label AS lb, e.last_chapter AS lc, e.update_date AS d,"
         " b.title AS t, b.author AS a, b.cat2 AS c2, b.cat3 AS c3, b.intro AS intro,"
-        " b.shelf AS sh, b.shelf_num AS shn, b.fans AS fans, b.score AS sc")
+        " b.shelf AS sh, b.shelf_num AS shn, b.fans AS fans, b.score AS sc,"
+        " b.urge AS ug")
 
 # 「收藏」排序口径：优先用详情页的加入书架人数，没采到的退回榜单热度
 N_SORT = "COALESCE(NULLIF(b.shelf_num, 0), e.collect_num)"
@@ -39,6 +40,7 @@ def _slim(row, intro_max=150):
         "shn": row["shn"] or 0,        # 上者折成的整数，用于排序
         "fans": row["fans"] or "",
         "sc": row["sc"] or 0,
+        "ug": row["ug"] or 0,          # 催更次数（书末页接口，0 表示还没采到）
         "bg": row["bg"] or "",
         "lc": row["lc"] or 0,
         "d": row["d"] or "",
@@ -189,6 +191,7 @@ def book_detail(bid):
             "cat2": b["cat2"], "cat3": b["cat3"], "intro": b["intro"],
             "shelf": b["shelf"] or "", "shelf_num": b["shelf_num"] or 0,
             "fans": b["fans"] or "", "score": b["score"], "ratings": b["ratings"] or 0,
+            "urge": b["urge"] or 0,
             # 近 24 小时新增收藏：delta 为 None 表示还没攒够基准快照
             "shelf_24h": delta, "shelf_24h_base": base_at, "shelf_24h_hours": hours,
             "detail_at": b["detail_at"] or "",

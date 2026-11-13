@@ -47,7 +47,7 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 
 - 会员榜 / 新书榜 两个标签页，各 16 个分类子榜（含「全部」）
 - 按分类筛选、按书名或作者搜索
-- 按排名、热度、字数、加入书架人数排序
+- 按排名、热度、字数、加入书架人数、催更次数排序
 - 分页浏览，点击书名看详情（简介、标签、**近 24 小时新增收藏**、它在各榜单里的当前位置）
 - 左侧「拆书」：详情里点「拆书」拉下这本书的免费章节，点开直接读正文
 - 一键导出当前结果
@@ -194,7 +194,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 │  ├─ collect.py                备选入口：模拟器方案，自检 → 采两个榜 → 补详情 → 上报
 │  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
 │  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
-│  ├─ detail.py                 加入书架人数补采（走网页版）
+│  ├─ detail.py                 加入书架人数 + 催更次数补采（网页详情 + App 书末页）
 │  ├─ chapter.py                拆书：抓目录和章节正文，也能单独跑
 │  ├─ shelf_snapshot.py         每日书架数快照，供「近 24 小时新增收藏」做差
 │  ├─ push.py                   单份 json 上报
@@ -317,26 +317,38 @@ force-stop 重启 App → 进排行榜 → 逐个分类点一遍 → 把这一�
 两条经验：横滑切分类的手势要落在**标签条下方的书目区**（y≈319），滑在标签条上只会滚标签；
 App 切某个分类时会预取邻近分类，所以脚本是「点一下、把新到的全收下」。
 
-### 加入书架人数（详情补采）
+### 加入书架人数 + 催更次数（详情补采）
 
 榜单接口只返回 `num`（榜单热度），**不是**「加入书架」人数。真正的书架数在书籍详情页，
 由 `detail.py` 单独补（可选，不跑也能用，只是那一栏空着）。模拟器方案的 `collect.py`
 跑完会自动接一段；接口方案的 `api_rank.py` 只跑 15 秒，所以详情要自己按需补：
 
 ```bash
-python collector/detail.py                  # 补缺的
+python collector/detail.py                  # 补缺的（书架数或催更数任一为空）
 python collector/detail.py --all            # 全部重采
 python collector/detail.py --limit 50       # 先试 50 本
 python collector/detail.py --workers 8      # 并发数（默认见脚本）
 python collector/detail.py --no-upload      # 只落盘
 ```
 
-走的是网页版 `book.qq.com/book-detail/{bid}`（SSR 里的 `rating-item--favor`），
+书架数走网页版 `book.qq.com/book-detail/{bid}`（SSR 里的 `rating-item--favor`），
 和 App 详情页的 `introinfo.staticScoreInfo` 是同一个统计口径，只是网页更新更勤。
 2849 本约 5 分钟，**全程不需要模拟器**。
 
+同一次请求里还顺手取了**催更次数**——就是 App 里把一本书翻到最后一页、页脚显示的那个数。
+它在书末页接口里，游客也能取：
+
+```
+GET https://commontgw.reader.qq.com/book/chapterOver?bid={bid}
+→ endPageInfo: [{"support": true, "bx": "9386", "unit": "次"}, ...]
+```
+
+`bx` 是字符串，可能是 `1.0` 这种小数写法，统一折成整数存进 `books.urge`。
+这个接口很轻（约 0.2 秒），所以跟详情页一次采完。完结多年的老书催更数通常很小
+（读者不会再催），连载中的新书几百到上万都正常。
+
 极少数老书（`bid` 很小的早期作品）网页版没有详情页，会 404；这些书的「加入书架」
-一栏会退回显示榜单热度，鼠标悬停有说明。
+一栏显示 `—`，悬停有说明（早期版本曾退回显示榜单热度，已改掉：那会让同一列混两种口径）。
 
 ### 近 24 小时新增收藏（每日快照）
 
@@ -529,6 +541,9 @@ GET  /api/reader/history                  拆书：最近读过的书
 页面上「加入书架」一栏用的不是 `num`，而是详情页的书架人数 `books.shelf`（App 原样字符串，
 如 `14.3万`，一万以下给精确值如 `5269`），`books.shelf_num` 是折成的整数，只用于排序和比例条。
 两者口径不同：一本新书可能热度很高但书架人数很少，别再混着用。
+
+「催更」一栏是 `books.urge`，来自 App 书末页接口的 `bx`，是整数次数，跟热度、书架数都无关。
+`NULL` 表示还没采到（页面显示 `—`），`0` 表示采到了但这本书确实是 0 次催更。
 
 早期采集的 json 没有 `total_words` 字段，这些记录 `words_exact` 为 0，详情退回显示「25.6 万字」。
 补精确值有两种方式：

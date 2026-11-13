@@ -49,8 +49,8 @@ class Config:
                                   os.path.join("collector", "shelf_snapshot.py"))
     SHELF_SNAPSHOT_EVERY = float(os.environ.get("WB_SHELF_EVERY") or 24) * 3600
 
-    # 补「加入书架」数：榜单接口只给热度，收藏要去书籍详情页抓。
-    # 每次采集后新出现的书都得补一次，否则那一列只能显示「—」。
+    # 补「加入书架」数和「催更」次数：榜单接口只给热度，这两项要去书籍页抓。
+    # 每次采集后新出现的书都得补一次，否则那两列只能显示「—」。
     DETAIL_SCRIPT = _path("WB_DETAIL_SCRIPT", os.path.join("collector", "detail.py"))
     DETAIL_LIMIT = int(os.environ.get("WB_DETAIL_LIMIT") or 400)
 

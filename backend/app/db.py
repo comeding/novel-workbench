@@ -79,13 +79,13 @@ def _drop_legacy(con):
         if "words_exact" not in cols:
             con.execute("ALTER TABLE entries ADD COLUMN words_exact INTEGER")
 
-    # books 补详情页字段（加入书架人数 / 书友 / 评分），CREATE TABLE IF NOT EXISTS 不会补列
+    # books 补详情页字段（加入书架人数 / 书友 / 评分 / 催更），CREATE TABLE IF NOT EXISTS 不会补列
     if "books" in names:
         cols = _cols(con, "books")
         for col, ddl in (("shelf", "TEXT"), ("shelf_num", "INTEGER"),
                          ("fans", "TEXT"), ("fans_num", "INTEGER"),
                          ("score", "REAL"), ("ratings", "INTEGER"),
-                         ("detail_at", "TEXT")):
+                         ("urge", "INTEGER"), ("detail_at", "TEXT")):
             if col not in cols:
                 con.execute("ALTER TABLE books ADD COLUMN %s %s" % (col, ddl))
 
