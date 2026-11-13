@@ -60,8 +60,11 @@
         vh: window.innerHeight,
         prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' },
 
-        /* 页面：qq = 榜单，read = 拆书，ver = 版本控制 */
+        /* 页面：qq = 榜单，readlist = 拆书列表，read = 拆书阅读，ver = 版本控制 */
         page: 'qq',
+
+        /* 拆书列表：read_books 一行一张封面卡，点开进拆书阅读 */
+        rl: { items: [], loading: false, err: '' },
 
         /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
            所以列表只渲染可视区那几十行。side=false 时目录收起，正文铺开 */
@@ -334,6 +337,8 @@
         /* 上次收起过目录，这次进来还是收着 */
         try { this.rd.side = localStorage.getItem('wb.rdSide') !== '0'; } catch (e) {}
         this.openFromQuery();
+        /* #readlist 直达拆书列表（收藏夹 / 分享用）。没写 hash 就还是扫榜首页 */
+        if ((location.hash || '') === '#readlist') this.openReadList();
       },
 
       checkHealth() {
@@ -362,6 +367,7 @@
       /* ---------- 榜单操作 ---------- */
       onMenu(index) {
         if (index === 'ver') { this.openVer(); return; }
+        if (index === 'readlist') { this.openReadList(); return; }
         if (index === 'read') { this.openRead(); return; }
         this.page = 'qq';
         this.stopVer();
@@ -485,6 +491,39 @@
         }
       },
 
+      /* ---------- 拆书列表 ----------
+       * 拆过的书在 read_books 里各占一行，这里按封面卡铺出来。
+       * 卡片上的「已存 N 章」是这台机器真的缓存下来的正文，不是目录规模。
+       */
+      openReadList() {
+        this.page = 'readlist';
+        this.stopVer();
+        this.drawer = false;
+        this.scrollTop();
+        this.loadReadList();
+      },
+
+      async loadReadList() {
+        const rl = this.rl;
+        if (rl.loading) return;
+        rl.loading = true; rl.err = '';
+        try {
+          const d = await WBAPI.readerBooks();
+          /* broken 标记封面加载失败，失败后退回首字母占位，别留一张破图 */
+          rl.items = ((d && d.items) || []).map(x => Object.assign({}, x, { broken: false }));
+        } catch (e) {
+          rl.err = (e && e.message) || '读不到拆书记录';
+        } finally {
+          rl.loading = false;
+        }
+      },
+
+      fmtWords(n) {
+        n = Number(n) || 0;
+        if (!n) return '';
+        return n >= 10000 ? (n / 10000).toFixed(1) + ' 万字' : exact(n) + ' 字';
+      },
+
       /* ---------- 拆书 ----------
        * 目录和正文都由后端抓（容器里直连 book.qq.com），前端只负责翻。
        * 免费章节给全文，付费章节后端只拿得到两百字试读，会返回 paid=true。
@@ -519,6 +558,8 @@
         this.drawer = false;
         this.page = 'read';
         this.stopVer();
+        /* 从拆书列表点进来后，地址栏里的 #readlist 就没用了，留着刷新会跳回列表 */
+        if ((location.hash || '') === '#readlist') this.clearHash();
         const rd = this.rd;
         const sameBook = String(rd.bid) === String(bid);
         rd.bid = String(bid);

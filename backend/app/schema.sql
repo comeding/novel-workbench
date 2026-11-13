@@ -106,10 +106,12 @@ CREATE INDEX IF NOT EXISTS ix_shelf_hist ON shelf_history (bid, at);
 -- 两份都缓存下来：目录页七百多 KB，没有理由每次点都重新拉。
 
 -- 一本书的目录概要
+-- 一行就是一条「拆书记录」：拆书列表按这张表出卡片，封面用 cover。
 CREATE TABLE IF NOT EXISTS read_books (
     bid        TEXT PRIMARY KEY,
     title      TEXT,
     author     TEXT,
+    cover      TEXT,                        -- 封面图 URL（目录页 og:image，空则按规则推）
     total      INTEGER,                     -- 章节数
     free_count INTEGER,                     -- 免费章节数（校准后）
     free_token TEXT,                        -- 目录里代表「免费」的标记，空 = 没校准出来

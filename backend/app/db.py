@@ -79,6 +79,12 @@ def _drop_legacy(con):
         if "words_exact" not in cols:
             con.execute("ALTER TABLE entries ADD COLUMN words_exact INTEGER")
 
+    # read_books 补封面（早期只有书名/作者/章节数），拆书列表要拿它出封面卡
+    if "read_books" in names:
+        cols = _cols(con, "read_books")
+        if "cover" not in cols:
+            con.execute("ALTER TABLE read_books ADD COLUMN cover TEXT")
+
     # books 补详情页字段（加入书架人数 / 书友 / 评分），CREATE TABLE IF NOT EXISTS 不会补列
     if "books" in names:
         cols = _cols(con, "books")

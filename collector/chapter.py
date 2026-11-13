@@ -52,6 +52,8 @@ TIMEOUT = 25
 RE_ITEM = re.compile(
     r'\{cid:\w+,chapterName:("(?:[^"\\]|\\.)*"|\w+),free:(\w+),purchased:(\w+)')
 RE_META = r'<meta[^>]*property="og:novel:%s"[^>]*content="([^"]*)"'
+# 封面：og:image 指向封面 CDN（.../cover/253/61368253/t5_61368253.jpg）
+RE_IMAGE = re.compile(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"')
 RE_TITLE = re.compile(r'<title>(.+?)</title>', re.S)
 
 
@@ -131,11 +133,17 @@ def _meta(html, name):
 
 # ---------- 目录 ----------
 
+def _cover(html):
+    m = RE_IMAGE.search(html)
+    return m.group(1).strip() if m else ""
+
+
 def parse_toc(html, bid=""):
     """从目录页 HTML 解出章节列表。
 
-    返回 {bid, title, author, latest, chapters:[{no, title, token, at}], paid_hint}
+    返回 {bid, title, author, cover, latest, chapters:[{no, title, token, at}], paid_hint}
     token 是 free 字段的原始值（a / d 这种变量名），用来反推免费标记。
+    cover 是封面图地址，拆书列表拿它出封面卡。
     """
     chapters = []
     for m in RE_ITEM.finditer(html):
@@ -161,6 +169,7 @@ def parse_toc(html, bid=""):
         "bid": str(bid or ""),
         "title": _meta(html, "book_name") or _title_name(html),
         "author": _meta(html, "author"),
+        "cover": _cover(html),
         "latest": _meta(html, "latest_chapter_name"),
         "chapters": chapters,
     }

@@ -114,6 +114,7 @@ const WBAPI = (function () {
     version: () => get('/api/version', null, 6000),
 
     /* 拆书：目录第一次要现抓（长篇一万多章约两秒），给足超时 */
+    readerBooks: () => get('/api/reader/books', null, 15000),
     readerToc: (bid, refresh) => get('/api/reader/' + encodeURIComponent(bid) + '/toc',
                                      refresh ? { refresh: 1 } : null, 90000),
     readerChapter: (bid, no) => get('/api/reader/' + encodeURIComponent(bid) + '/chapter/' +

@@ -2,6 +2,7 @@
 
 数据来自 QQ阅读 网页版，不用登录、不用模拟器。两件事分开做：
 
+  GET /api/reader/books                  拆书列表（每本一张封面卡）
   GET /api/reader/{bid}/toc              目录（缓存，?refresh=1 重抓）
   GET /api/reader/{bid}/chapter/{no}     某一章正文（缓存）
   GET /api/reader/history                最近读过
@@ -52,6 +53,25 @@ def _now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
+COVER_TPL = "https://wfqqreader-1252317822.image.myqcloud.com/cover/%d/%s/t5_%s.jpg"
+
+
+def _cover_url(bid):
+    """按 QQ阅读 封面 CDN 的路径规则拼一个。
+    bid=61368253 → cover/253/61368253/t5_61368253.jpg，中段是 bid 后三位（去掉前导零）。
+    只在 read_books.cover 为空时兜底，抓过目录的书都有准确地址。
+    """
+    try:
+        n = int(str(bid))
+    except (TypeError, ValueError):
+        return ""
+    return COVER_TPL % (n % 1000, bid, bid)
+
+
+def _cover(bid, cover):
+    return cover or _cover_url(bid)
+
+
 # ---------- 读库 ----------
 
 def _book_row(bid):
@@ -100,6 +120,7 @@ def _toc_json(bid, book, rows, cached):
         "bid": bid,
         "title": book["title"] or "",
         "author": book["author"] or "",
+        "cover": _cover(bid, book["cover"] if "cover" in book.keys() else ""),
         "total": total,
         "free_count": len(free),
         "calibrated": bool(token),
@@ -123,13 +144,14 @@ def _save_toc(bid, data, free_info):
         con.executemany(
             "INSERT INTO read_chapters (bid, no, title, free, at) VALUES (?,?,?,?,?)", rows)
         con.execute(
-            "INSERT INTO read_books (bid, title, author, total, free_count, free_token, fetched_at)"
-            " VALUES (?,?,?,?,?,?,?)"
+            "INSERT INTO read_books (bid, title, author, cover, total, free_count,"
+            " free_token, fetched_at) VALUES (?,?,?,?,?,?,?,?)"
             " ON CONFLICT(bid) DO UPDATE SET title=excluded.title, author=excluded.author,"
+            " cover=COALESCE(NULLIF(excluded.cover, ''), read_books.cover),"
             " total=excluded.total, free_count=excluded.free_count,"
             " free_token=excluded.free_token, fetched_at=excluded.fetched_at",
-            (bid, data["title"] or "", data["author"] or "", len(rows),
-             sum(1 for v in free if v == 1) if free else 0, token or "", stamp))
+            (bid, data["title"] or "", data["author"] or "", data.get("cover") or "",
+             len(rows), sum(1 for v in free if v == 1) if free else 0, token or "", stamp))
 
 
 def _save_text(bid, ch):
@@ -268,6 +290,43 @@ def chapter(req):
     return {"ok": True, "cached": False, "bid": bid, "no": ch["no"],
             "title": ch["title"], "paras": ch["paras"], "words": ch["words"],
             "paid": ch["paid"], "tip": ch["tip"]}
+
+
+# ---------- 拆书列表 ----------
+
+@router.get(r"/api/reader/books")
+def books(req):
+    """拆过的书，一本一条，按最近动过的排前面。
+
+    read_books 一行就是一条「拆书记录」；saved / words 来自正文缓存，
+    也就是真的在这台机器上存下来的章节数、字数，不是目录里的全书规模。
+    """
+    limit = max(1, min(1000, req.arg_int("limit", 200)))
+    with db.reader() as con:
+        rows = con.execute(
+            "SELECT b.bid, b.title, b.author, b.cover, b.total, b.free_count, b.fetched_at,"
+            "       h.no AS last_no, h.at AS last_at,"
+            "       (SELECT COUNT(*) FROM read_text t"
+            "         WHERE t.bid = b.bid AND t.paid = 0) AS saved,"
+            "       (SELECT COALESCE(SUM(t.words), 0) FROM read_text t"
+            "         WHERE t.bid = b.bid AND t.paid = 0) AS words"
+            "  FROM read_books b"
+            "  LEFT JOIN read_history h ON h.bid = b.bid"
+            " ORDER BY COALESCE(h.at, b.fetched_at) DESC LIMIT ?", (limit,)).fetchall()
+    items = [{
+        "bid": r["bid"],
+        "title": r["title"] or ("书 %s" % r["bid"]),
+        "author": r["author"] or "",
+        "cover": _cover(r["bid"], r["cover"] or ""),
+        "total": r["total"] or 0,
+        "free_count": r["free_count"] or 0,
+        "saved": r["saved"] or 0,
+        "words": r["words"] or 0,
+        "last_no": r["last_no"] or 0,
+        "last_at": r["last_at"] or "",
+        "fetched_at": r["fetched_at"] or "",
+    } for r in rows]
+    return {"ok": True, "count": len(items), "items": items}
 
 
 # ---------- 最近读过 ----------

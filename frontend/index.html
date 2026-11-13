@@ -30,7 +30,7 @@
       </div>
 
       <div class="nav-label">工作台</div>
-      <el-menu class="nav" :default-active="page" :default-openeds="['scan']" @select="onMenu">
+      <el-menu class="nav" :default-active="page" :default-openeds="['scan', 'read']" @select="onMenu">
         <el-sub-menu index="scan">
           <template #title>
             <el-icon><data-line></data-line></el-icon>
@@ -41,10 +41,20 @@
             <span>QQ阅读</span>
           </el-menu-item>
         </el-sub-menu>
-        <el-menu-item index="read">
-          <el-icon><notebook></notebook></el-icon>
-          <span>拆书</span>
-        </el-menu-item>
+        <el-sub-menu index="read">
+          <template #title>
+            <el-icon><notebook></notebook></el-icon>
+            <span>拆书</span>
+          </template>
+          <el-menu-item index="readlist">
+            <el-icon><files></files></el-icon>
+            <span>拆书列表</span>
+          </el-menu-item>
+          <el-menu-item index="read">
+            <el-icon><reading></reading></el-icon>
+            <span>拆书阅读</span>
+          </el-menu-item>
+        </el-sub-menu>
         <el-menu-item index="ver" class="nav-ver">
           <el-icon><setting></setting></el-icon>
           <span>版本控制</span>
@@ -73,6 +83,10 @@
               <el-breadcrumb-item>系统</el-breadcrumb-item>
               <el-breadcrumb-item>版本控制</el-breadcrumb-item>
             </template>
+            <template v-else-if="page === 'readlist'">
+              <el-breadcrumb-item>拆书</el-breadcrumb-item>
+              <el-breadcrumb-item>拆书列表</el-breadcrumb-item>
+            </template>
             <template v-else-if="page === 'read'">
               <el-breadcrumb-item>拆书</el-breadcrumb-item>
               <el-breadcrumb-item>{{ rd.title || '章节' }}</el-breadcrumb-item>
@@ -83,7 +97,8 @@
               <el-breadcrumb-item>{{ tabName }}</el-breadcrumb-item>
             </template>
           </el-breadcrumb>
-          <h2>{{ page === 'ver' ? '版本控制' : (page === 'read' ? (rd.title || '拆书') : tabName) }}</h2>
+          <h2>{{ page === 'ver' ? '版本控制' : (page === 'readlist' ? '拆书列表'
+                : (page === 'read' ? (rd.title || '拆书') : tabName)) }}</h2>
         </div>
         <div class="right" v-if="page === 'qq'">
           <el-tag size="large" effect="plain" round class="chip">
@@ -104,6 +119,15 @@
               <el-icon><refresh></refresh></el-icon>
             </el-button>
           </el-tooltip>
+        </div>
+        <div class="right" v-else-if="page === 'readlist'">
+          <el-tag v-if="rl.items.length" size="small" effect="plain" round class="chip">
+            共 {{ rl.items.length }} 本
+          </el-tag>
+          <el-button plain :loading="rl.loading" @click="loadReadList">
+            <el-icon v-if="!rl.loading"><refresh></refresh></el-icon>
+            刷新
+          </el-button>
         </div>
         <div class="right" v-else>
           <el-tag v-if="rd.bid" size="small" effect="plain" round class="chip">
@@ -194,6 +218,57 @@
                 <div v-if="ver.err" style="margin-top:6px;color:#c4562f">诊断：{{ ver.err }}</div>
               </div>
             </el-alert>
+          </section>
+        </template>
+
+        <!-- ---------- 拆书列表：拆过的书，一本一张封面卡 ---------- -->
+        <template v-else-if="page === 'readlist'">
+          <section class="rl" v-loading="rl.loading && !rl.items.length" element-loading-text="正在读拆书记录…">
+
+            <div v-if="rl.err" class="rl-err">
+              <el-alert :title="rl.err" type="warning" :closable="false" show-icon></el-alert>
+              <el-button size="small" plain @click="loadReadList">再试一次</el-button>
+            </div>
+
+            <div v-else-if="!rl.loading && !rl.items.length" class="rl-hello">
+              <div class="ico">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6"
+                     stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 10.5A3.5 3.5 0 0 1 11.5 7H40v30H11.5A3.5 3.5 0 0 0 8 40.5z"/>
+                  <path d="M8 40.5A3.5 3.5 0 0 1 11.5 37H40v4H11.5"/>
+                  <path d="M17 15h13M17 22h9"/>
+                </svg>
+              </div>
+              <h3>还没有拆过的书</h3>
+              <p>去扫榜挑一本，详情里点「拆书」，抓过的书都会出现在这里。</p>
+              <el-button type="primary" plain @click="onMenu('qq')">去看榜单</el-button>
+            </div>
+
+            <div v-else class="rl-grid">
+              <article v-for="b in rl.items" :key="b.bid" class="rl-card"
+                       :title="b.title" @click="openReader(b.bid, b.title)">
+                <div class="rl-cover">
+                  <img v-if="b.cover && !b.broken" :src="b.cover" :alt="b.title"
+                       loading="lazy" @error="b.broken = true">
+                  <div v-else class="rl-ph"><span>{{ (b.title || '?').slice(0, 1) }}</span></div>
+                  <em v-if="b.saved" class="rl-tag">已存 {{ b.saved }} 章</em>
+                </div>
+                <div class="rl-info">
+                  <b>{{ b.title }}</b>
+                  <span class="au">{{ b.author || '佚名' }}</span>
+                  <span class="meta">
+                    <em v-if="b.free_count">免费 {{ b.free_count }} 章</em>
+                    <em v-else class="dim">无免费章</em>
+                    <i v-if="b.words">{{ fmtWords(b.words) }}</i>
+                  </span>
+                  <span class="tm">
+                    {{ b.last_no ? ('读到第 ' + b.last_no + ' 章 · ' + (b.last_at || '').slice(5, 16))
+                                 : ('拆于 ' + (b.fetched_at || '').slice(5, 16)) }}
+                  </span>
+                </div>
+              </article>
+            </div>
+
           </section>
         </template>
 
