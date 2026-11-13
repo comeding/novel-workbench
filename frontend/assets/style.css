@@ -430,6 +430,26 @@ body {
 .rd { display: flex; gap: 16px; height: calc(100vh - 96px); min-height: 420px; }
 .body.dense .rd { height: calc(100vh - 90px); }
 
+/* 目录收起后左侧那条窄栏：点一下把目录拉回来 */
+.rd-fold {
+  flex: none; width: 30px; align-self: stretch;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 14px 0 0; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  color: #8b9ab8; font: inherit;
+}
+.rd-fold:hover { color: var(--blue); border-color: #d7e3fb; background: #f7faff; }
+.rd-fold .el-icon { font-size: 15px; }
+.rd-fold span {
+  writing-mode: vertical-rl; letter-spacing: 3px;
+  font-size: 11.5px; color: #a7b4cc;
+}
+.rd-fold:hover span { color: var(--blue); }
+
+/* 收起目录后正文可以铺开一点，但行宽仍控制在好读的范围内 */
+.rd.side-off .rd-read { max-width: 900px; }
+
 .rd-side {
   width: 296px; flex: none; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line);

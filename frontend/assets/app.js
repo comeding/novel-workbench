@@ -64,11 +64,11 @@
         page: 'qq',
 
         /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
-           所以列表只渲染可视区那几十行 */
+           所以列表只渲染可视区那几十行。side=false 时目录收起，正文铺开 */
         rd: {
           bid: '', title: '', author: '', total: 0, freeCount: 0,
           chapters: [], tocLoading: false, err: '', warn: '',
-          q: '', no: 0, row: 34, scroll: 0, viewH: 620,
+          q: '', no: 0, row: 34, scroll: 0, viewH: 620, side: true,
           textLoading: false,
           text: { title: '', paras: [], words: 0, paid: false },
           recent: []
@@ -331,6 +331,8 @@
           this.loading = false;
         }
         this.checkHealth();
+        /* 上次收起过目录，这次进来还是收着 */
+        try { this.rd.side = localStorage.getItem('wb.rdSide') !== '0'; } catch (e) {}
         this.openFromQuery();
       },
 
@@ -496,6 +498,19 @@
           let last = null;
           try { last = JSON.parse(localStorage.getItem('wb.read') || 'null'); } catch (e) {}
           if (last && last.bid) this.openReader(last.bid, '');
+        }
+      },
+
+      /* 目录收起 / 展开。收起状态记在本地，下次打开还是上次那样 */
+      toggleSide(open) {
+        this.rd.side = !!open;
+        try { localStorage.setItem('wb.rdSide', open ? '1' : '0'); } catch (e) {}
+        if (open) {
+          /* 藏着的时候量不到高度，展开后重新量一次，并把目录滚到当前章 */
+          this.$nextTick(() => {
+            this.syncReadRow();
+            this.scrollTocTo(this.rd.no);
+          });
         }
       },
 

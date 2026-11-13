@@ -199,10 +199,10 @@
 
         <!-- ---------- 拆书 ---------- -->
         <template v-else-if="page === 'read'">
-          <section class="rd">
+          <section class="rd" :class="{ 'side-off': !rd.side }">
 
             <!-- 左：目录 -->
-            <aside class="rd-side">
+            <aside class="rd-side" v-show="rd.side">
               <div class="rd-hd">
                 <div class="rd-name">
                   <h3>{{ rd.bid ? (rd.title || '书 ' + rd.bid) : '拆书' }}</h3>
@@ -216,6 +216,11 @@
                 <el-tooltip v-if="rd.bid" content="重新抓一遍目录" placement="bottom">
                   <el-button circle text size="small" :loading="rd.tocLoading" @click="reloadToc">
                     <el-icon><refresh></refresh></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="收起目录，正文更宽" placement="bottom">
+                  <el-button circle text size="small" @click="toggleSide(false)">
+                    <el-icon><arrow-left></arrow-left></el-icon>
                   </el-button>
                 </el-tooltip>
               </div>
@@ -265,6 +270,13 @@
                 </div>
               </div>
             </aside>
+
+            <!-- 目录收起后，左边留一条窄栏，点一下展开 -->
+            <button v-if="!rd.side" type="button" class="rd-fold" title="展开目录"
+                    @click="toggleSide(true)">
+              <el-icon><arrow-right></arrow-right></el-icon>
+              <span>目录</span>
+            </button>
 
             <!-- 右：正文 -->
             <div class="rd-main">

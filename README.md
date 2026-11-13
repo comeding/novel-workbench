@@ -415,6 +415,9 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 目录和正文都缓存在库里（`read_books` / `read_chapters` / `read_text`），
 所以第二次打开是秒开的。新章节出来了点页面右上角「重抓目录」。
 
+看正文嫌目录占地方，点目录标题栏右侧的箭头把左边收起，正文会铺开；
+收起后左边留一条窄栏，点一下「目录」就回来。收不收的状态记在浏览器里，下次进来还是上次那样。
+
 命令行也能用：
 
 ```bash
