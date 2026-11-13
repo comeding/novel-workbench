@@ -501,13 +501,6 @@
                 </template>
               </el-table-column>
 
-              <el-table-column label="徽章" width="132">
-                <template #default="{ row }">
-                  <el-tag v-if="row.bg" type="danger" effect="light" size="small" round>{{ row.bg }}</el-tag>
-                  <span v-else class="dim">—</span>
-                </template>
-              </el-table-column>
-
               <el-table-column width="96">
                 <template #header><span class="th" @click="sortBy('d')">更新<i class="ar" :class="arrow('d')"></i></span></template>
                 <template #default="{ row }"><span class="mono dim">{{ (row.d || '').slice(5, 10) || '—' }}</span></template>
@@ -576,7 +569,6 @@
         <el-descriptions-item label="书友">{{ current.fans || '—' }}</el-descriptions-item>
         <el-descriptions-item label="评分">{{ current.sc ? current.sc + ' 分' : '—' }}</el-descriptions-item>
         <el-descriptions-item label="标签">{{ current.lb || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="徽章">{{ current.bg || '无' }}</el-descriptions-item>
         <el-descriptions-item label="书籍 ID" :span="2"><code>{{ current.bid }}</code></el-descriptions-item>
       </el-descriptions>
 

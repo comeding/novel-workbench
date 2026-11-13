@@ -10,7 +10,7 @@ from .. import db
 
 # 前端沿用的压缩字段名，和旧版 data.js 保持一致
 COLS = (" e.cat, e.bid, e.rank AS r, e.words AS w, e.words_exact AS wx,"
-        " e.collect_num AS n, e.badge AS bg,"
+        " e.collect_num AS n,"
         " e.label AS lb, e.last_chapter AS lc, e.update_date AS d,"
         " b.title AS t, b.author AS a, b.cat2 AS c2, b.cat3 AS c3, b.intro AS intro,"
         " b.shelf AS sh, b.shelf_num AS shn, b.fans AS fans, b.score AS sc")
@@ -39,7 +39,6 @@ def _slim(row, intro_max=150):
         "shn": row["shn"] or 0,        # 上者折成的整数，用于排序
         "fans": row["fans"] or "",
         "sc": row["sc"] or 0,
-        "bg": row["bg"] or "",
         "lc": row["lc"] or 0,
         "d": row["d"] or "",
         "in": (row["intro"] or "")[:intro_max],

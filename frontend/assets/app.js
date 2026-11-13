@@ -451,7 +451,7 @@
         WBAPI.book(bid).then(d => {
           this.current = { bid: d.bid, t: d.title, a: d.author, c2: d.cat2, c3: d.cat3, in: d.intro,
                            r: '—', n: 0, sh: d.shelf || '', shn: d.shelf_num || 0, w: '—', wx: 0,
-                           lc: '—', lb: '', bg: '', d: '',
+                           lc: '—', lb: '', d: '',
                            s24: d.shelf_24h === undefined ? null : d.shelf_24h,
                            s24h: d.shelf_24h_hours || 0 };
           this.positions = this.bookPositions(bid);
