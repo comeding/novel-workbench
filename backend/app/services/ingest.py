@@ -204,15 +204,13 @@ def ingest(payload):
 
 
 def ingest_details(payload):
-    """书籍详情上报：补 books 里的加入书架人数 / 书友 / 评分 / 催更次数。
+    """书籍详情上报：只补 books 里的加入书架人数 / 书友 / 评分。
 
     采集器见 collector/detail.py，payload 结构：
         {"collected_at": "...", "items": [{"bid": "60858944", "shelf": "14.3万",
           "shelf_num": 143000, "fans": "4.4万", "fans_num": 44000,
-          "score": 9.0, "ratings": 328, "urge": 9386}, ...]}
+          "score": 9.0, "ratings": 328}, ...]}
 
-    两个来源互不依赖：书架数来自网页详情页，催更来自 App 书末页接口。
-    有的书网页上没有详情页、却有催更数，所以这条记录的 shelf 允许为空。
     只更新库里已有的书（books 里只有在榜书目），不认识的一律忽略，
     所以重复上报是安全的、也是幂等的。
     """
@@ -234,35 +232,23 @@ def ingest_details(payload):
                 continue
             bid = _txt(it.get("bid")).strip()
             shelf = _txt(it.get("shelf")).strip()
-            urge = it.get("urge")
-            urge = _int(urge) if urge not in (None, "") else None
-            if not bid or (not shelf and urge is None):
+            if not bid or not shelf:
                 continue
             shelf_num = _int(it.get("shelf_num"))
-
-            if shelf:
-                cur = con.execute(
-                    "UPDATE books SET shelf = ?, shelf_num = ?, fans = ?, fans_num = ?,"
-                    " score = ?, ratings = ?, urge = COALESCE(?, urge), detail_at = ?"
-                    " WHERE bid = ?",
-                    (
-                        shelf,
-                        shelf_num,
-                        _txt(it.get("fans")),
-                        _int(it.get("fans_num")),
-                        it.get("score") if isinstance(it.get("score"), (int, float)) else None,
-                        _int(it.get("ratings")),
-                        urge,
-                        at,
-                        bid,
-                    ),
-                )
-            else:
-                # 只有催更数：别把已有的书架数 / 书友 / 评分覆盖成空
-                cur = con.execute(
-                    "UPDATE books SET urge = ?, detail_at = ? WHERE bid = ?",
-                    (urge, at, bid),
-                )
+            cur = con.execute(
+                "UPDATE books SET shelf = ?, shelf_num = ?, fans = ?, fans_num = ?,"
+                " score = ?, ratings = ?, detail_at = ? WHERE bid = ?",
+                (
+                    shelf,
+                    shelf_num,
+                    _txt(it.get("fans")),
+                    _int(it.get("fans_num")),
+                    it.get("score") if isinstance(it.get("score"), (int, float)) else None,
+                    _int(it.get("ratings")),
+                    at,
+                    bid,
+                ),
+            )
             updated += 1 if cur.rowcount else 0
 
             # 留一条历史，供「近 24 小时新增收藏」做差。

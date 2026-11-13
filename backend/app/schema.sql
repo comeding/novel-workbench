@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS books (
     fans_num    INTEGER,
     score       REAL,                       -- 评分（如 9.0）
     ratings     INTEGER,                    -- 评分人数
-    urge        INTEGER,                    -- 催更累计次数（书末页 /book/chapterOver 的 bx）
     detail_at   TEXT,                       -- 详情页采集时间
     updated_at  TEXT
 );

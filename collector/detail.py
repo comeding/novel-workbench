@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""补齐「加入书架」人数（App 详情页封面上那个数字）+「催更」次数。
+"""补齐「加入书架」人数（App 详情页封面上那个数字）。
 
 为什么要单独采一轮
 ------------------
@@ -12,19 +12,8 @@
 两者是同一个口径（同一套服务端统计），网页版只是更新得更勤。所以这里直接抓网页版：
 不用模拟器、不用 root、可以并发，2849 本大约 4 分钟。
 
-催更数在哪
-----------
-App 里把一本书翻到最后一页（读完最后一章），页脚会显示「N 次催更」，那是整本书
-的累计催更次数。数据在书末页接口里，游客也能取：
-
-    GET https://commontgw.reader.qq.com/book/chapterOver?bid={bid}
-    → endPageInfo: [{"support": true, "bx": "9386", "unit": "次"}, ...]
-
-bx 就是次数，可能是 "1.0" 这种小数写法。它跟榜单热度、加入书架都不是一回事，
-单独存一列（books.urge）。这个接口很轻（约 0.2 秒），跟详情页一起采。
-
 用法（项目根目录）：
-    python collector/detail.py                  补齐库里还没有书架数 / 催更数的书
+    python collector/detail.py                  补齐库里还没有书架数的书
     python collector/detail.py --all            全部重采一遍
     python collector/detail.py --limit 50       先试 50 本
     python collector/detail.py --no-upload      只落盘，不上报
@@ -33,8 +22,7 @@ bx 就是次数，可能是 "1.0" 这种小数写法。它跟榜单热度、加�
 产出 data/raw/detail_YYYYmmdd_HHMM.json，结构：
     {"platform": "...", "source": "...", "collected_at": "...", "kind": "details",
      "items": [{"bid": "...", "shelf": "14.3万", "shelf_num": 143000,
-                "fans": "4.4万", "fans_num": 44000, "score": 9.0, "ratings": 328,
-                "urge": 9386}]}
+                "fans": "4.4万", "fans_num": 44000, "score": 9.0, "ratings": 328}]}
 """
 import json
 import os
@@ -59,11 +47,7 @@ OUT_DIR = os.path.join(ROOT, "data", "raw")
 DB_PATH = os.environ.get("WB_DB") or os.path.join(ROOT, "data", "workbench.db")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-# 催更接口要 App 的 UA，网页版 UA 会 403
-APP_UA = ("Mozilla/5.0 (Linux; Android 15; V2364A Build/V417IR; wv) AppleWebKit/537.36 "
-          "(KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Safari/537.36")
 DETAIL_URL = "https://book.qq.com/book-detail/%s"
-URGE_URL = "https://commontgw.reader.qq.com/book/chapterOver?bid=%s"
 
 WORKERS = 8
 RETRIES = 3
@@ -108,19 +92,7 @@ def _rating(html, kind):
 
 
 def fetch(bid):
-    """抓一本书的详情页 + 书末页催更数，返回 item；两边都没拿到返回 None。"""
-    item = _detail(bid)
-    urge = fetch_urge(bid)
-    if urge is not None:
-        if item is None:
-            item = {"bid": str(bid), "shelf": "", "shelf_num": 0,
-                    "fans": "", "fans_num": 0, "score": None, "ratings": 0}
-        item["urge"] = urge
-    return item
-
-
-def _detail(bid):
-    """网页详情页：加入书架 / 书友 / 评分。没有这本书的详情页返回 None。"""
+    """抓一本书的详情页，返回 item；抓不到返回 None。"""
     url = DETAIL_URL % bid
     last = None
     for i in range(RETRIES):
@@ -159,50 +131,13 @@ def _detail(bid):
     return None
 
 
-def fetch_urge(bid):
-    """书末页的催更累计次数（读完最后一章时页脚显示的那个数）。
-
-    返回 int；接口没给或请求失败返回 None（和「0 次催更」是两回事，
-    0 要如实保留，不能和没采到混在一起）。
-    """
-    url = URGE_URL % bid
-    last = None
-    for i in range(RETRIES):
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": APP_UA,
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip",
-            })
-            with urllib.request.urlopen(req, timeout=15) as r:
-                raw = r.read()
-                if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
-                    import gzip
-                    raw = gzip.decompress(raw)
-            data = json.loads(raw.decode("utf-8", "replace"))
-            if str(data.get("code")) != "0":
-                return None
-            for info in (data.get("endPageInfo") or []):
-                if isinstance(info, dict) and "bx" in info:
-                    return num_of(info.get("bx"))
-            return None
-        except Exception as e:                  # noqa: BLE001
-            last = e
-        time.sleep(0.5 * (i + 1))
-    log("  ✗ 催更 %s %s" % (bid, last))
-    return None
-
-
 def pending_bids(all_books=False):
-    """从库里取需要补的 bid：默认只要还缺书架数或催更数的。"""
+    """从库里取需要补的 bid：默认只要还没有书架数的。"""
     con = sqlite3.connect("file:%s?mode=ro" % DB_PATH.replace("\\", "/"), uri=True)
     con.row_factory = sqlite3.Row
     cols = {r["name"] for r in con.execute("PRAGMA table_info(books)")}
     if all_books or "shelf" not in cols:
         sql = "SELECT bid FROM books ORDER BY bid"
-    elif "urge" in cols:
-        sql = ("SELECT bid FROM books WHERE shelf IS NULL OR shelf = ''"
-               " OR urge IS NULL ORDER BY bid")
     else:
         sql = "SELECT bid FROM books WHERE shelf IS NULL OR shelf = '' ORDER BY bid"
     try:
@@ -216,8 +151,8 @@ def save(items):
     stamp = time.strftime("%Y%m%d_%H%M")
     path = os.path.join(OUT_DIR, "detail_%s.json" % stamp)
     payload = {
-        "platform": "QQ阅读 网页版 + App 书末页",
-        "source": "book.qq.com/book-detail SSR + commontgw/chapterOver",
+        "platform": "QQ阅读 网页版",
+        "source": "book.qq.com/book-detail SSR",
         "collected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "kind": "details",
         "items": items,
@@ -248,10 +183,10 @@ def main(argv=None):
     if limit:
         bids = bids[:limit]
     if not bids:
-        log("没有需要补的书 —— 书架数和催更数都在库里了（要重采加 --all）")
+        log("没有需要补的书 —— 全部都有加书架数了（要重采加 --all）")
         return 0
 
-    log("待补 %d 本，%d 并发，预计 %.1f 分钟" % (len(bids), workers, len(bids) * 0.9 / workers / 60))
+    log("待补 %d 本，%d 并发，预计 %.1f 分钟" % (len(bids), workers, len(bids) * 0.6 / workers / 60))
     log("-" * 58)
 
     items, done, fail = [], 0, 0
@@ -274,9 +209,8 @@ def main(argv=None):
         return 1
 
     path, payload = save(items)
-    n_urge = sum(1 for it in items if "urge" in it)
-    log("\n共 %d 本（失败 %d，含催更 %d），耗时 %.1f 分钟\n  %s" % (
-        len(items), fail, n_urge, (time.time() - t0) / 60, path))
+    log("\n共 %d 本（失败 %d），耗时 %.1f 分钟\n  %s" % (
+        len(items), fail, (time.time() - t0) / 60, path))
 
     if "--no-upload" in flags:
         log("\n已跳过上报（--no-upload）")
@@ -295,7 +229,7 @@ def main(argv=None):
         log('  curl -X POST "%s/api/details" -H "Content-Type: application/json" --data-binary @%s'
             % (base, path))
         return 0
-    log("  已入库：%d 本补上加入书架数 / 催更数" % (r.get("updated") or 0))
+    log("  已入库：%d 本补上加入书架数" % (r.get("updated") or 0))
     return 0
 
 

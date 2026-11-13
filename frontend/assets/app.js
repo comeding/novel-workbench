@@ -113,7 +113,6 @@
         const dir = s.dir;
         out.sort((x, y) => {
           if (s.sort === 'n') return (shelfVal(x) - shelfVal(y)) * dir;
-          if (s.sort === 'u') return ((x.ug || 0) - (y.ug || 0)) * dir;
           if (s.sort === 'r' || s.sort === 'w') return ((x[s.sort] || 0) - (y[s.sort] || 0)) * dir;
           return String(x[s.sort] || '').localeCompare(String(y[s.sort] || '')) * dir;
         });
@@ -385,7 +384,7 @@
       sortBy(f) {
         const s = this.st;
         if (s.sort === f) s.dir *= -1;
-        else { s.sort = f; s.dir = (f === 'd' || f === 'n' || f === 'u') ? -1 : 1; }
+        else { s.sort = f; s.dir = (f === 'd' || f === 'n') ? -1 : 1; }
         s.page = 1;
       },
 
@@ -408,7 +407,6 @@
           this.current.s24 = d.shelf_24h === undefined ? null : d.shelf_24h;
           this.current.s24h = d.shelf_24h_hours || 0;
           this.current.s24cur = d.shelf_num || 0;
-          this.current.ug = d.urge || this.current.ug || 0;
         }).catch(() => {});
       },
 
@@ -453,7 +451,6 @@
         WBAPI.book(bid).then(d => {
           this.current = { bid: d.bid, t: d.title, a: d.author, c2: d.cat2, c3: d.cat3, in: d.intro,
                            r: '—', n: 0, sh: d.shelf || '', shn: d.shelf_num || 0, w: '—', wx: 0,
-                           ug: d.urge || 0,
                            lc: '—', lb: '', bg: '', d: '',
                            s24: d.shelf_24h === undefined ? null : d.shelf_24h,
                            s24h: d.shelf_24h_hours || 0 };
