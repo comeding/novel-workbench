@@ -60,12 +60,20 @@
         vh: window.innerHeight,
         prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' },
 
-        /* 页面：qq = 榜单，readlist = 拆书列表，read = 拆书阅读，ver = 版本控制 */
+        /* 页面：qq = 榜单，readlist = 拆书列表，read = 拆书阅读，docs = 拆书文件，doc = 某本书的拆书文件，ver = 版本控制 */
         page: 'qq',
 
         /* 拆书列表：read_books 一行一张封面卡，点开进拆书阅读。
            starting = 刚点「拆书」正在抓目录的书，先摆一张「抓取中」占位卡 */
         rl: { items: [], loading: false, err: '', starting: [], flash: '' },
+
+        /* 拆书文件：写过笔记的书各一份，点封面进 doc 页 */
+        dk: { items: [], loading: false, err: '' },
+        doc: {
+          bid: '', title: '', author: '', cover: '', coverBroken: false, total: 0,
+          chapters: [], notes: 0, outlines: 0, updated_at: '', markdown: '',
+          loading: false, err: ''
+        },
 
         /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
            所以列表只渲染可视区那几十行。side=false 时目录收起，正文铺开 */
@@ -75,7 +83,11 @@
           q: '', no: 0, row: 34, scroll: 0, viewH: 620, side: true,
           textLoading: false,
           text: { title: '', paras: [], words: 0, paid: false },
-          recent: []
+          recent: [],
+          /* 笔记：notes 键 '章号|段号'，outlines 键 '章号'。整本一次拉下来，切章不再请求 */
+          notes: {}, outlines: {},
+          edit: -1, draft: '', saving: false,
+          outlineEdit: false, outlineDraft: '', outlineSaving: false
         },
         verTimer: null,
         ver: {
@@ -244,6 +256,19 @@
         return this.rdFiltered.slice(this.rdStart, this.rdStart + n);
       },
 
+      /* 哪些章有笔记：目录里给这些章打个小点，回头找得快 */
+      rdMarkNos() {
+        const set = new Set();
+        for (const k of Object.keys(this.rd.notes)) set.add(Number(k.split('|')[0]));
+        for (const k of Object.keys(this.rd.outlines)) set.add(Number(k));
+        return set;
+      },
+
+      /* 这本书一共有多少条笔记，页面顶部那个小数字用它 */
+      rdMarkCount() {
+        return Object.keys(this.rd.notes).length + Object.keys(this.rd.outlines).length;
+      },
+
       /* ---------- 版本控制 ---------- */
       vst() { return this.ver.st || {}; },
 
@@ -338,8 +363,9 @@
         /* 上次收起过目录，这次进来还是收着 */
         try { this.rd.side = localStorage.getItem('wb.rdSide') !== '0'; } catch (e) {}
         this.openFromQuery();
-        /* #readlist 直达拆书列表（收藏夹 / 分享用）。没写 hash 就还是扫榜首页 */
+        /* #readlist / #docs 直达（收藏夹 / 分享用）。没写 hash 就还是扫榜首页 */
         if ((location.hash || '') === '#readlist') this.openReadList();
+        else if ((location.hash || '') === '#docs') this.openDocs();
       },
 
       checkHealth() {
@@ -369,6 +395,7 @@
       onMenu(index) {
         if (index === 'ver') { this.openVer(); return; }
         if (index === 'readlist') { this.openReadList(); return; }
+        if (index === 'docs') { this.openDocs(); return; }
         if (index === 'read') { this.openRead(); return; }
         this.page = 'qq';
         this.stopVer();
@@ -533,6 +560,116 @@
         return n >= 10000 ? (n / 10000).toFixed(1) + ' 万字' : exact(n) + ' 字';
       },
 
+      /* ---------- 拆书文件 ----------
+       * 文件不是另存的一份文档，而是「这本书的笔记按章攒起来」的实时视图：
+       * 写一条批注，文件立刻多一条，不会有版本对不上的问题。导出时才落成 .md。
+       */
+      openDocs() {
+        this.page = 'docs';
+        this.stopVer();
+        this.scrollTop();
+        this.loadDocs();
+      },
+
+      async loadDocs() {
+        const dk = this.dk;
+        if (dk.loading) return;
+        dk.loading = true; dk.err = '';
+        try {
+          const d = await WBAPI.readerDocs();
+          dk.items = ((d && d.items) || []).map(x => Object.assign({}, x, { broken: false }));
+        } catch (e) {
+          dk.err = (e && e.message) || '读不到拆书文件';
+        } finally {
+          dk.loading = false;
+        }
+      },
+
+      async openDoc(bid, title) {
+        if (!bid) return;
+        this.page = 'doc';
+        this.stopVer();
+        this.scrollTop();
+        if ((location.hash || '') === '#readlist' || (location.hash || '') === '#docs') this.clearHash();
+        if (String(this.doc.bid) !== String(bid)) {
+          Object.assign(this.doc, {
+            bid: String(bid), title: title || '', author: '', cover: '', coverBroken: false,
+            total: 0, chapters: [], notes: 0, outlines: 0, updated_at: '', markdown: ''
+          });
+        }
+        await this.loadDoc(bid);
+      },
+
+      async loadDoc(bid) {
+        const doc = this.doc;
+        doc.loading = true; doc.err = '';
+        try {
+          const d = await WBAPI.readerDoc(bid);
+          if (String(doc.bid) !== String(bid)) return;
+          const m = d.meta || {};
+          doc.title = m.title || doc.title;
+          doc.author = m.author || '';
+          doc.cover = m.cover || '';
+          doc.total = m.total || 0;
+          doc.chapters = d.chapters || [];
+          doc.notes = m.notes || 0;
+          doc.outlines = m.outlines || 0;
+          doc.updated_at = m.updated_at || '';
+          doc.markdown = d.markdown || '';
+        } catch (e) {
+          doc.err = (e && e.message) || '这份拆书文件读不出来';
+        } finally {
+          doc.loading = false;
+        }
+      },
+
+      backDocs() {
+        this.page = 'docs';
+        this.scrollTop();
+        this.loadDocs();
+      },
+
+      copyDoc() {
+        const md = this.doc.markdown || '';
+        if (!md) { ElMessage.info('这份文件还是空的'); return; }
+        const done = () => ElMessage.success('全文已复制，可以直接贴到笔记软件里');
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(md).then(done)
+            .catch(() => ElMessage.warning('复制失败，用「导出 .md」吧'));
+        } else {
+          ElMessage.info('这个地址不能直接读剪贴板，用「导出 .md」吧');
+        }
+      },
+
+      exportDoc() {
+        const md = this.doc.markdown || '';
+        if (!md) { ElMessage.info('这份文件还是空的'); return; }
+        /* 文件名里不能有 \ / : * ? " < > |，书名里这些都换成下划线 */
+        const name = ('《' + (this.doc.title || this.doc.bid) + '》拆书文件')
+          .replace(/[\\/:*?"<>|]/g, '_');
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name + '.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        ElMessage.success('已导出 ' + name + '.md');
+      },
+
+      /* 从拆书文件里「去读这一章」：进阅读页并翻到那一章 */
+      openReaderAt(no) {
+        const bid = this.doc.bid || this.rd.bid;
+        const title = this.doc.title || this.rd.title;
+        if (!bid) return;
+        this.openReader(bid, title).then(() => {
+          if (this.rd.chapters.some(c => c.n === no)) this.openChapter(no);
+          else ElMessage.info('第 ' + no + ' 章不在免费章节里，翻到最近的一章了');
+        });
+      },
+
       /* ---------- 扫榜详情里点「拆书」 ----------
        * 顺序是「先跳拆书列表，后台抓目录，抓完列表多一张卡」：
        * 目录要现抓两秒起（长篇一万多章），停在榜单页转圈会让人以为没点上，
@@ -587,7 +724,7 @@
         this._flashT = setTimeout(() => { this.rl.flash = ''; }, 2000);
       },
 
-      /* 从拆书列表移除：删库里的拆书记录（目录 + 正文 + 进度），扫榜数据不动 */
+      /* 从拆书列表移除：删库里的拆书记录（目录 + 正文 + 笔记 + 进度），扫榜数据不动 */
       async dropRead(b) {
         if (!b) return;
         const extra = b.saved || b.words
@@ -596,7 +733,7 @@
         try {
           await ElMessageBox.confirm(
             '《' + b.title + '》会从拆书列表里消失' + extra
-              + '。扫榜数据不受影响，以后还能重新拆。',
+              + '，这本书的拆书笔记和拆书文件也一起删掉。扫榜数据不受影响，以后还能重新拆。',
             '从拆书列表移除',
             { confirmButtonText: '移除', cancelButtonText: '留着', type: 'warning' });
         } catch (e) {
@@ -673,7 +810,14 @@
         rd.scroll = 0;
         rd.err = '';
         rd.warn = '';
-        if (!sameBook) { rd.no = 0; rd.text = { title: '', paras: [], words: 0, paid: false }; }
+        if (!sameBook) {
+          rd.no = 0;
+          rd.text = { title: '', paras: [], words: 0, paid: false };
+          rd.notes = {};
+          rd.outlines = {};
+        }
+        rd.edit = -1; rd.draft = '';
+        rd.outlineEdit = false; rd.outlineDraft = '';
         this.syncReadRow();
         await this.loadToc(false);
       },
@@ -702,6 +846,7 @@
           rd.freeCount = d.free_count || 0;
           rd.chapters = d.chapters || [];                   /* 后端只给免费章 */
           rd.warn = d.warn || '';
+          this.loadNotes(want);
           this.syncReadRow();
           if (rd.chapters.length) {
             let last = 0;
@@ -728,6 +873,8 @@
         no = Number(no) || 0;
         if (!rd.bid || no < 1) return;
         rd.no = no;
+        rd.edit = -1; rd.draft = '';
+        rd.outlineEdit = false; rd.outlineDraft = '';
         rd.textLoading = true;
         rd.text = { title: '', paras: [], words: 0, paid: false };
         try { localStorage.setItem('wb.read', JSON.stringify({ bid: rd.bid, no })); } catch (e) {}
@@ -769,8 +916,145 @@
         });
       },
 
-      loadRecent() {
-        WBAPI.readerHistory().then(d => {
+      /* ---------- 拆书笔记：段落批注 + 章纲 ----------
+       * 两条路都存进 read_marks，阅读页整本一次拉下来（键 '章|段'），
+       * 切章不用再发请求；改完就地更新，目录上的小点也跟着变。
+       */
+      noteAt(i) { return this.rd.notes[this.rd.no + '|' + i] || null; },
+
+      async loadNotes(bid) {
+        const rd = this.rd;
+        /* 每次拉取排个号：只认最后一次。写完/删完笔记时序号也会往前走，
+           这样「慢半拍才回来的旧数据」不会把刚做的改动盖回去（踩过）。 */
+        const seq = (this._notesSeq = (this._notesSeq || 0) + 1);
+        try {
+          const d = await WBAPI.readerNotes(bid);
+          if (seq !== this._notesSeq) return;
+          if (String(rd.bid) !== String(bid)) return;      /* 拉的过程中切书了 */
+          const notes = {}, outlines = {};
+          for (const n of (d && d.items) || []) {
+            if (n.kind === 'outline') outlines[n.no] = { text: n.text || '', at: n.at || '' };
+            else if (n.text) {
+              notes[n.no + '|' + n.para] = {
+                para: n.para, no: n.no, text: n.text, quote: n.quote || '', at: n.at || ''
+              };
+            }
+          }
+          rd.notes = notes;
+          rd.outlines = outlines;
+        } catch (e) {
+          /* 笔记读不到不该挡着读正文，空着就是了 */
+        }
+      },
+
+      startNote(i) {
+        const rd = this.rd;
+        const n = this.noteAt(i);
+        rd.outlineEdit = false;
+        rd.edit = i;
+        rd.draft = n ? n.text : '';
+        this.$nextTick(() => {
+          const el = document.querySelector('.rd-note-edit textarea');
+          if (el) el.focus();
+        });
+      },
+
+      cancelNote() {
+        this.rd.edit = -1;
+        this.rd.draft = '';
+      },
+
+      async saveNote(i) {
+        const rd = this.rd;
+        const text = (rd.draft || '').trim();
+        if (!rd.bid) return;
+        if (!text) {
+          ElMessage.warning('写点内容再保存；想删就点批注上的「删除」');
+          return;
+        }
+        this._notesSeq = (this._notesSeq || 0) + 1;
+        rd.saving = true;
+        try {
+          const d = await WBAPI.readerSaveNote(rd.bid, {
+            no: rd.no, para: i, kind: 'note', text,
+            quote: String(rd.text.paras[i] || '').slice(0, 40)
+          });
+          const next = Object.assign({}, rd.notes);
+          next[rd.no + '|' + i] = {
+            para: i, no: rd.no, text: d.text, quote: d.quote || '', at: d.at || ''
+          };
+          rd.notes = next;
+          rd.edit = -1;
+          rd.draft = '';
+          ElMessage.success('批注已保存');
+        } catch (e) {
+          ElMessage.error('没存上：' + ((e && e.message) || '网络问题'));
+        } finally {
+          rd.saving = false;
+        }
+      },
+
+      async dropNote(i) {
+        const rd = this.rd;
+        const key = rd.no + '|' + i;
+        if (!rd.notes[key]) return;
+        try {
+          await ElMessageBox.confirm('删掉这一段的批注？留着原文，但笔记就没了。', '删除批注',
+            { confirmButtonText: '删掉', cancelButtonText: '留着', type: 'warning' });
+        } catch (e) {
+          return;
+        }
+        this._notesSeq = (this._notesSeq || 0) + 1;
+        try {
+          await WBAPI.readerDropNote(rd.bid, rd.no, i, 'note');
+          const next = Object.assign({}, rd.notes);
+          delete next[key];
+          rd.notes = next;
+          if (rd.edit === i) this.cancelNote();
+          ElMessage.success('已删除');
+        } catch (e) {
+          ElMessage.error('删不掉：' + ((e && e.message) || '网络问题'));
+        }
+      },
+
+      editOutline() {
+        const rd = this.rd;
+        rd.edit = -1;
+        rd.draft = '';
+        rd.outlineDraft = (rd.outlines[rd.no] || {}).text || '';
+        rd.outlineEdit = true;
+        this.$nextTick(() => {
+          const el = document.querySelector('.rd-outline textarea');
+          if (el) el.focus();
+        });
+      },
+
+      async saveOutline() {
+        const rd = this.rd;
+        const text = (rd.outlineDraft || '').trim();
+        if (!rd.bid) return;
+        if (!text) {
+          ElMessage.warning('章纲还是空的，写两句话再保存');
+          return;
+        }
+        this._notesSeq = (this._notesSeq || 0) + 1;
+        rd.outlineSaving = true;
+        try {
+          const d = await WBAPI.readerSaveNote(rd.bid, { no: rd.no, kind: 'outline', text });
+          const next = Object.assign({}, rd.outlines);
+          next[rd.no] = { text: d.text, at: d.at || '' };
+          rd.outlines = next;
+          rd.outlineEdit = false;
+          rd.outlineDraft = '';
+          ElMessage.success('章纲已保存');
+        } catch (e) {
+          ElMessage.error('没存上：' + ((e && e.message) || '网络问题'));
+        } finally {
+          rd.outlineSaving = false;
+        }
+      },
+
+      loadRecent() {        WBAPI.readerHistory().then(d => {
           this.rd.recent = (d && d.items) || [];
         }).catch(() => {});
       },

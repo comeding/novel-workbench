@@ -122,6 +122,18 @@ const WBAPI = (function () {
     readerHistory: () => get('/api/reader/history', null, 8000),
     readerDropBook: (bid) => request('/api/reader/books/' + encodeURIComponent(bid),
                                      { method: 'DELETE' }, 15000),
+
+    /* 拆书笔记：段落批注 + 章纲，都是人手写的 */
+    readerNotes: (bid) => get('/api/reader/' + encodeURIComponent(bid) + '/notes', null, 12000),
+    readerSaveNote: (bid, body) => post('/api/reader/' + encodeURIComponent(bid) + '/notes', body),
+    readerDropNote: (bid, no, para, kind) => request(
+      '/api/reader/' + encodeURIComponent(bid) + '/notes/' + encodeURIComponent(no) + '/' +
+      encodeURIComponent(para) + (kind ? '?kind=' + encodeURIComponent(kind) : ''),
+      { method: 'DELETE' }, 15000),
+
+    /* 拆书文件：笔记攒成的文档，一本书一份 */
+    readerDocs: () => get('/api/reader/docs', null, 15000),
+    readerDoc: (bid) => get('/api/reader/docs/' + encodeURIComponent(bid), null, 20000),
     agentBase: AGENT,
     /* 走的是看板后端代理，多一跳（浏览器 → 后端 → 宿主机），
      * 2.5 秒在网络不好时不够用，给到 8 秒。 */

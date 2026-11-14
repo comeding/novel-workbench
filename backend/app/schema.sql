@@ -147,3 +147,20 @@ CREATE TABLE IF NOT EXISTS read_history (
     at   TEXT
 );
 
+-- 拆书笔记：段落批注 + 整章章纲，都是手写的，和抓来的正文分开存
+--   kind = note     段落批注，para 指第几段（0 起）
+--   kind = outline  本章章纲，para 固定 -1
+-- quote 存锚定段落的前几十字：正文重抓后段落顺序可能变，有原文才好对位
+CREATE TABLE IF NOT EXISTS read_marks (
+    bid   TEXT NOT NULL,
+    no    INTEGER NOT NULL,
+    para  INTEGER NOT NULL DEFAULT -1,
+    kind  TEXT NOT NULL DEFAULT 'note',
+    text  TEXT,
+    quote TEXT,
+    at    TEXT,
+    PRIMARY KEY (bid, no, para, kind)
+);
+
+CREATE INDEX IF NOT EXISTS ix_read_marks_bid ON read_marks (bid, no);
+

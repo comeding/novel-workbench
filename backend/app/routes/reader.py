@@ -8,6 +8,12 @@
   GET /api/reader/{bid}/chapter/{no}     某一章正文（缓存）
   GET /api/reader/history                最近读过
 
+  GET /api/reader/{bid}/notes            这本书的全部笔记（段落批注 + 章纲）
+  POST /api/reader/{bid}/notes           写 / 改一条笔记（text 传空 = 删除）
+  DELETE /api/reader/{bid}/notes/{no}/{para}   删一条
+  GET /api/reader/docs                   拆书文件列表（有笔记的书）
+  GET /api/reader/docs/{bid}             这本书的拆书文件（含 markdown，可导出）
+
 免费 / 付费
 ----------
 拆书只做免费章节。目录还是整本拉下来（免费标记要拿整本的 token 分布校准），
@@ -19,6 +25,7 @@
 """
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -341,11 +348,209 @@ def drop_book(req):
     with db.tx() as con:
         texts = con.execute("DELETE FROM read_text WHERE bid = ?", (bid,)).rowcount
         chapters = con.execute("DELETE FROM read_chapters WHERE bid = ?", (bid,)).rowcount
+        marks = con.execute("DELETE FROM read_marks WHERE bid = ?", (bid,)).rowcount
         con.execute("DELETE FROM read_history WHERE bid = ?", (bid,))
         books = con.execute("DELETE FROM read_books WHERE bid = ?", (bid,)).rowcount
     if not books:
         return json_response({"ok": False, "error": "这本书不在拆书列表里"}, 404)
-    return {"ok": True, "bid": bid, "chapters": chapters, "texts": texts}
+    return {"ok": True, "bid": bid, "chapters": chapters, "texts": texts, "marks": marks}
+
+
+# ---------- 拆书笔记 ----------
+# 两种笔记，都是人手写的，和抓来的正文分开存：
+#   note    段落批注，挂在第 no 章第 para 段（0 起）
+#   outline 本章章纲，para 固定 -1
+# 一本书的笔记一次全给前端：切章不用再问一次，目录也能顺手标出哪些章有笔记。
+
+MARK_KINDS = ("note", "outline")
+MAX_NOTE = 4000
+
+
+@router.get(r"/api/reader/(?P<bid>\d+)/notes")
+def notes(req):
+    bid = req.params["bid"]
+    with db.reader() as con:
+        rows = con.execute(
+            "SELECT no, para, kind, text, quote, at FROM read_marks WHERE bid = ?"
+            " ORDER BY no, kind, para", (bid,)).fetchall()
+    return {"ok": True, "bid": bid, "count": len(rows), "items": [dict(r) for r in rows]}
+
+
+@router.post(r"/api/reader/(?P<bid>\d+)/notes")
+def save_note(req):
+    """写 / 改一条笔记。text 传空就等于删掉，前端别的不必再单独调删除。"""
+    bid = req.params["bid"]
+    try:
+        body = req.json()
+    except ValueError as e:
+        return json_response({"ok": False, "error": str(e)}, 400)
+
+    kind = (body.get("kind") or "note").strip()
+    if kind not in MARK_KINDS:
+        return json_response({"ok": False, "error": "kind 只能是 note 或 outline"}, 400)
+    try:
+        no = int(body.get("no") or 0)
+        para = -1 if kind == "outline" else int(body.get("para", -1))
+    except (TypeError, ValueError):
+        return json_response({"ok": False, "error": "no / para 不是数字"}, 400)
+    if no < 1:
+        return json_response({"ok": False, "error": "章节号要从 1 开始"}, 400)
+    if kind == "note" and para < 0:
+        return json_response({"ok": False, "error": "段落批注要带段落序号"}, 400)
+
+    text = (body.get("text") or "").strip()[:MAX_NOTE]
+    # 锚定段落的前几十字：正文重抓后段落可能重排，有原文才好找回位置
+    quote = (body.get("quote") or "").strip()[:80]
+
+    if not text:
+        with db.tx() as con:
+            con.execute("DELETE FROM read_marks WHERE bid = ? AND no = ? AND para = ? AND kind = ?",
+                        (bid, no, para, kind))
+        return {"ok": True, "deleted": True, "bid": bid, "no": no, "para": para, "kind": kind}
+
+    stamp = _now()
+    with db.tx() as con:
+        con.execute(
+            "INSERT INTO read_marks (bid, no, para, kind, text, quote, at) VALUES (?,?,?,?,?,?,?)"
+            " ON CONFLICT(bid, no, para, kind) DO UPDATE SET text = excluded.text,"
+            " quote = excluded.quote, at = excluded.at",
+            (bid, no, para, kind, text, quote, stamp))
+    return {"ok": True, "bid": bid, "no": no, "para": para, "kind": kind,
+            "text": text, "quote": quote, "at": stamp}
+
+
+@router.delete(r"/api/reader/(?P<bid>\d+)/notes/(?P<no>\d+)/(?P<para>-?\d+)")
+def drop_note(req):
+    bid = req.params["bid"]
+    no = int(req.params["no"])
+    para = int(req.params["para"])
+    kind = req.arg("kind") or ("outline" if para < 0 else "note")
+    with db.tx() as con:
+        n = con.execute("DELETE FROM read_marks WHERE bid = ? AND no = ? AND para = ? AND kind = ?",
+                        (bid, no, para, kind)).rowcount
+    return {"ok": True, "deleted": n, "bid": bid, "no": no, "para": para, "kind": kind}
+
+
+# ---------- 拆书文件 ----------
+# 拆书文件不是另存一份文档，而是「把这本书的笔记按章攒起来」的实时视图：
+# 笔记改了文件立刻跟着变，不会出现两份对不上的内容。导出时才落成 .md。
+
+# 目录名里的「第 12 章」：有就不用再拿章节号拼一遍，免得出现「第 12 章　第 12 章 标题」
+RE_CH_NO = re.compile(r"^第\s*[0-9０-９零〇一二三四五六七八九十百千万两]+\s*章")
+
+
+def _chapter_heading(no, title):
+    t = (title or "").strip()
+    if t and RE_CH_NO.match(t):
+        return t
+    return "第 %d 章" % no + ("　" + t if t else "")
+
+def _doc_markdown(meta, chapters):
+    """拆书文件的 markdown 版：导出、复制都直接用它。"""
+    out = ["# 《%s》拆书文件" % meta["title"], ""]
+    sub = []
+    if meta["author"]:
+        sub.append("作者：%s" % meta["author"])
+    if meta["total"]:
+        sub.append("全书 %d 章" % meta["total"])
+    sub.append("%d 章有笔记　·　%d 条章纲　·　%d 条批注"
+               % (meta["chapters"], meta["outlines"], meta["notes"]))
+    sub.append("导出 %s" % meta["exported_at"])
+    out += ["> " + "　·　".join(sub), ""]
+
+    for c in chapters:
+        out += ["## " + c["heading"], ""]
+        if c["outline"]:
+            out += ["**章纲**", "", c["outline"], ""]
+        if c["notes"]:
+            out += ["**批注**", ""]
+            for i, n in enumerate(c["notes"], 1):
+                if n["quote"]:
+                    out.append("%d. 「%s」" % (i, n["quote"]))
+                    out.append("   > " + n["text"].replace("\n", "\n   > "))
+                else:
+                    out.append("%d. %s" % (i, n["text"].replace("\n", "\n   ")))
+                out.append("")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+@router.get(r"/api/reader/docs")
+def docs(req):
+    """拆书文件列表：写过笔记的书才有文件。"""
+    limit = max(1, min(500, req.arg_int("limit", 200)))
+    with db.reader() as con:
+        rows = con.execute(
+            "SELECT m.bid,"
+            "       SUM(CASE WHEN m.kind = 'note' THEN 1 ELSE 0 END) AS notes,"
+            "       SUM(CASE WHEN m.kind = 'outline' THEN 1 ELSE 0 END) AS outlines,"
+            "       COUNT(DISTINCT m.no) AS chapters,"
+            "       MAX(m.at) AS updated_at,"
+            "       b.title, b.author, b.cover, b.total"
+            "  FROM read_marks m LEFT JOIN read_books b ON b.bid = m.bid"
+            " GROUP BY m.bid ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+    items = [{
+        "bid": r["bid"],
+        "title": r["title"] or ("书 %s" % r["bid"]),
+        "author": r["author"] or "",
+        "cover": _cover(r["bid"], r["cover"] or ""),
+        "total": r["total"] or 0,
+        "notes": r["notes"] or 0,
+        "outlines": r["outlines"] or 0,
+        "chapters": r["chapters"] or 0,
+        "updated_at": r["updated_at"] or "",
+    } for r in rows]
+    return {"ok": True, "count": len(items), "items": items}
+
+
+@router.get(r"/api/reader/docs/(?P<bid>\d+)")
+def doc(req):
+    bid = req.params["bid"]
+    with db.reader() as con:
+        book = con.execute("SELECT * FROM read_books WHERE bid = ?", (bid,)).fetchone()
+        rows = con.execute(
+            "SELECT m.no, m.para, m.kind, m.text, m.quote, m.at, c.title AS toc_title"
+            "  FROM read_marks m"
+            "  LEFT JOIN read_chapters c ON c.bid = m.bid AND c.no = m.no"
+            " WHERE m.bid = ? ORDER BY m.no, m.kind, m.para", (bid,)).fetchall()
+    if not rows:
+        return json_response({"ok": False, "error": "这本书还没有拆书笔记"}, 404)
+
+    by_no = {}
+    order = []
+    for r in rows:
+        c = by_no.get(r["no"])
+        if c is None:
+            c = by_no[r["no"]] = {"no": r["no"], "title": r["toc_title"] or "",
+                                  "heading": _chapter_heading(r["no"], r["toc_title"]),
+                                  "outline": "", "notes": []}
+            order.append(r["no"])
+        if r["kind"] == "outline":
+            c["outline"] = r["text"] or ""
+        elif r["text"]:
+            c["notes"].append({"para": r["para"], "text": r["text"],
+                               "quote": r["quote"] or "", "at": r["at"] or ""})
+    # 章内按段落顺序排，前端就不用再排一次
+    for no in order:
+        by_no[no]["notes"].sort(key=lambda n: n["para"])
+    chapters = [by_no[no] for no in order]
+
+    note_n = sum(len(c["notes"]) for c in chapters)
+    outline_n = sum(1 for c in chapters if c["outline"])
+    meta = {
+        "bid": bid,
+        "title": (book["title"] if book else "") or ("书 %s" % bid),
+        "author": (book["author"] if book else "") or "",
+        "cover": _cover(bid, (book["cover"] if book and "cover" in book.keys() else "") or ""),
+        "total": (book["total"] if book else 0) or 0,
+        "chapters": len(chapters),
+        "notes": note_n,
+        "outlines": outline_n,
+        "updated_at": max((r["at"] or "") for r in rows),
+        "exported_at": _now(),
+    }
+    return {"ok": True, "meta": meta, "chapters": chapters,
+            "markdown": _doc_markdown(meta, chapters)}
 
 
 # ---------- 最近读过 ----------

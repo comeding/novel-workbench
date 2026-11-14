@@ -54,6 +54,10 @@
             <el-icon><reading></reading></el-icon>
             <span>拆书阅读</span>
           </el-menu-item>
+          <el-menu-item index="docs">
+            <el-icon><document></document></el-icon>
+            <span>拆书文件</span>
+          </el-menu-item>
         </el-sub-menu>
         <el-menu-item index="ver" class="nav-ver">
           <el-icon><setting></setting></el-icon>
@@ -87,6 +91,15 @@
               <el-breadcrumb-item>拆书</el-breadcrumb-item>
               <el-breadcrumb-item>拆书列表</el-breadcrumb-item>
             </template>
+            <template v-else-if="page === 'docs'">
+              <el-breadcrumb-item>拆书</el-breadcrumb-item>
+              <el-breadcrumb-item>拆书文件</el-breadcrumb-item>
+            </template>
+            <template v-else-if="page === 'doc'">
+              <el-breadcrumb-item>拆书</el-breadcrumb-item>
+              <el-breadcrumb-item>拆书文件</el-breadcrumb-item>
+              <el-breadcrumb-item>{{ doc.title || '文件' }}</el-breadcrumb-item>
+            </template>
             <template v-else-if="page === 'read'">
               <el-breadcrumb-item>拆书</el-breadcrumb-item>
               <el-breadcrumb-item>{{ rd.title || '章节' }}</el-breadcrumb-item>
@@ -98,7 +111,9 @@
             </template>
           </el-breadcrumb>
           <h2>{{ page === 'ver' ? '版本控制' : (page === 'readlist' ? '拆书列表'
-                : (page === 'read' ? (rd.title || '拆书') : tabName)) }}</h2>
+                : (page === 'docs' ? '拆书文件'
+                : (page === 'doc' ? (doc.title || '拆书文件')
+                : (page === 'read' ? (rd.title || '拆书') : tabName)))) }}</h2>
         </div>
         <div class="right" v-if="page === 'qq'">
           <el-tag size="large" effect="plain" round class="chip">
@@ -132,10 +147,28 @@
             刷新
           </el-button>
         </div>
+        <div class="right" v-else-if="page === 'docs'">
+          <el-tag v-if="dk.items.length" size="small" effect="plain" round class="chip">
+            共 {{ dk.items.length }} 份
+          </el-tag>
+          <el-button plain :loading="dk.loading" @click="loadDocs">
+            <el-icon v-if="!dk.loading"><refresh></refresh></el-icon>
+            刷新
+          </el-button>
+        </div>
+        <div class="right" v-else-if="page === 'doc'">
+          <el-button plain size="small" @click="backDocs">返回列表</el-button>
+          <el-button type="primary" size="small" @click="exportDoc">导出 .md</el-button>
+        </div>
         <div class="right" v-else>
           <el-tag v-if="rd.bid" size="small" effect="plain" round class="chip">
             免费 {{ rd.freeCount || 0 }} 章
           </el-tag>
+          <el-button v-if="rd.bid" plain size="small" :disabled="!rdMarkCount"
+                     :title="rdMarkCount ? '看这本书攒下来的章纲和批注' : '还没有笔记，先在正文里写几条'"
+                     @click="openDoc(rd.bid, rd.title)">
+            拆书文件<span v-if="rdMarkCount" class="btn-n">{{ rdMarkCount }}</span>
+          </el-button>
           <el-button v-if="rd.bid" plain size="small" @click="reloadToc">重抓目录</el-button>
         </div>
       </el-header>
@@ -297,6 +330,121 @@
           </section>
         </template>
 
+        <!-- ---------- 拆书文件：写过笔记的书，一份一份铺开（与拆书列表同款版式） ---------- -->
+        <template v-else-if="page === 'docs'">
+          <section class="rl" v-loading="dk.loading && !dk.items.length"
+                   element-loading-text="正在读拆书文件…">
+
+            <div v-if="dk.err" class="rl-err">
+              <el-alert :title="dk.err" type="warning" :closable="false" show-icon></el-alert>
+              <el-button size="small" plain @click="loadDocs">再试一次</el-button>
+            </div>
+
+            <div v-else-if="!dk.loading && !dk.items.length" class="rl-hello">
+              <div class="ico">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6"
+                     stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 6h17l8 8v28H12z"/>
+                  <path d="M29 6v8h8"/>
+                  <path d="M18 22h14M18 29h14M18 36h9"/>
+                </svg>
+              </div>
+              <h3>还没有拆书文件</h3>
+              <p>拆书文件是自动攒出来的：在「拆书阅读」里给段落写批注、在章末写章纲，<br>
+                写过笔记的书这里就有一份文件。</p>
+              <el-button type="primary" plain @click="onMenu('readlist')">去看拆书列表</el-button>
+            </div>
+
+            <div v-else class="rl-grid">
+              <article v-for="b in dk.items" :key="b.bid" class="rl-card"
+                       :title="b.title + ' · 拆书文件'" @click="openDoc(b.bid, b.title)">
+                <div class="rl-cover">
+                  <img v-if="b.cover && !b.broken" :src="b.cover" :alt="b.title"
+                       loading="lazy" @error="b.broken = true">
+                  <div v-else class="rl-ph"><span>{{ (b.title || '?').slice(0, 1) }}</span></div>
+                  <em class="rl-tag doc-tag">{{ b.notes + b.outlines }} 条笔记</em>
+                </div>
+                <div class="rl-info">
+                  <b>{{ b.title }}</b>
+                  <span class="au">{{ b.author || '佚名' }}</span>
+                  <span class="meta">
+                    <em v-if="b.outlines">章纲 {{ b.outlines }}</em>
+                    <em v-else class="dim">还没写章纲</em>
+                    <i v-if="b.notes">批注 {{ b.notes }}</i>
+                  </span>
+                  <span class="tm">{{ b.chapters }} 章有笔记 · {{ (b.updated_at || '').slice(5, 16) }}</span>
+                </div>
+              </article>
+            </div>
+
+          </section>
+        </template>
+
+        <!-- ---------- 拆书文件详页：章纲 + 批注按章排下来 ---------- -->
+        <template v-else-if="page === 'doc'">
+          <section class="doc" v-loading="doc.loading && !doc.chapters.length"
+                   element-loading-text="正在整理这本书的笔记…">
+
+            <div v-if="doc.err" class="rl-err">
+              <el-alert :title="doc.err" type="warning" :closable="false" show-icon></el-alert>
+              <el-button size="small" plain @click="backDocs">回拆书文件</el-button>
+            </div>
+
+            <template v-else-if="doc.bid">
+              <header class="doc-hd">
+                <div class="doc-cover">
+                  <img v-if="doc.cover && !doc.coverBroken" :src="doc.cover" :alt="doc.title"
+                       @error="doc.coverBroken = true">
+                  <div v-else class="rl-ph"><span>{{ (doc.title || '?').slice(0, 1) }}</span></div>
+                </div>
+                <div class="doc-ht">
+                  <h2>{{ doc.title }}</h2>
+                  <p>{{ doc.author || '佚名' }}<template v-if="doc.total"> · 全书 {{ doc.total }} 章</template></p>
+                  <div class="doc-tags">
+                    <span><b>{{ doc.chapters.length }}</b> 章有笔记</span>
+                    <span><b>{{ doc.outlines }}</b> 条章纲</span>
+                    <span><b>{{ doc.notes }}</b> 条批注</span>
+                    <span class="dim" v-if="doc.updated_at">最后动于 {{ (doc.updated_at || '').slice(5, 16) }}</span>
+                  </div>
+                </div>
+                <div class="doc-act">
+                  <el-button plain @click="openReader(doc.bid, doc.title)">回去接着拆</el-button>
+                  <el-button plain @click="copyDoc">复制全文</el-button>
+                </div>
+              </header>
+
+              <article class="doc-bd">
+                <section v-for="c in doc.chapters" :key="c.no" class="doc-ch">
+                  <h3>
+                    {{ c.heading }}
+                    <em class="doc-go" title="跳到这一章继续读" @click="openReaderAt(c.no)">去读这一章</em>
+                  </h3>
+
+                  <div v-if="c.outline" class="doc-outline">
+                    <b>章纲</b>
+                    <p>{{ c.outline }}</p>
+                  </div>
+                  <div v-else class="doc-outline empty">
+                    <b>章纲</b>
+                    <p class="dim">这章还没写章纲</p>
+                  </div>
+
+                  <div v-for="(n, i) in c.notes" :key="n.para" class="doc-note">
+                    <div class="doc-q" v-if="n.quote">「{{ n.quote }}」</div>
+                    <div class="doc-tx">{{ n.text }}</div>
+                    <div class="doc-m">第 {{ n.para + 1 }} 段<template v-if="n.at"> · {{ (n.at || '').slice(5, 16) }}</template></div>
+                  </div>
+                </section>
+              </article>
+            </template>
+
+            <div v-else class="rl-hello">
+              <h3>还没打开任何拆书文件</h3>
+              <el-button type="primary" plain @click="backDocs">回拆书文件</el-button>
+            </div>
+          </section>
+        </template>
+
         <!-- ---------- 拆书 ---------- -->
         <template v-else-if="page === 'read'">
           <section class="rd" :class="{ 'side-off': !rd.side }">
@@ -348,6 +496,7 @@
                          :class="{ on: c.n === rd.no }" @click="openChapter(c.n)">
                       <span class="n">{{ c.n }}</span>
                       <span class="t">{{ c.t || ('第 ' + c.n + ' 章') }}</span>
+                      <i v-if="rdMarkNos.has(c.n)" class="rd-dot" title="这章有笔记"></i>
                     </div>
                   </div>
                 </div>
@@ -414,7 +563,64 @@
                   <span class="dim mono" v-else>第 {{ rd.no }} 章</span>
                 </div>
 
-                <p v-for="(p, i) in rd.text.paras" :key="i">{{ p }}</p>
+                <div v-for="(p, i) in rd.text.paras" :key="i" class="rd-p" :class="{ on: noteAt(i) }">
+                  <p>{{ p }}</p>
+
+                  <button type="button" class="rd-pbtn" :class="{ lit: noteAt(i) }"
+                          :title="noteAt(i) ? '改这一段的批注' : '给这一段写批注'"
+                          @click="startNote(i)">
+                    <el-icon><edit-pen v-if="noteAt(i)"></edit-pen><plus v-else></plus></el-icon>
+                  </button>
+
+                  <div v-if="noteAt(i) && rd.edit !== i" class="rd-note">
+                    <div class="rd-note-hd">
+                      <span>批注</span>
+                      <em>{{ (noteAt(i).at || '').slice(5, 16) }}</em>
+                      <i class="sp"></i>
+                      <button type="button" @click="startNote(i)">编辑</button>
+                      <button type="button" class="del" @click="dropNote(i)">删除</button>
+                    </div>
+                    <div class="rd-note-tx">{{ noteAt(i).text }}</div>
+                  </div>
+
+                  <div v-if="rd.edit === i" class="rd-note-edit">
+                    <el-input v-model="rd.draft" type="textarea" :rows="3" resize="none"
+                              placeholder="这一段值得记的：写法、信息点、伏笔、可以借的句子…"
+                              @keydown.ctrl.enter.prevent="saveNote(i)"></el-input>
+                    <div class="rd-note-btns">
+                      <el-button size="small" type="primary" :loading="rd.saving" @click="saveNote(i)">保存批注</el-button>
+                      <el-button size="small" plain @click="cancelNote">取消</el-button>
+                      <span>Ctrl + Enter 保存</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rd-outline" :class="{ done: rd.outlines[rd.no] }">
+                  <div class="rd-outline-hd">
+                    <b>本章章纲</b>
+                    <em v-if="rd.outlines[rd.no]">已写 · {{ (rd.outlines[rd.no].at || '').slice(5, 16) }}</em>
+                    <em v-else>读完用两三句话记下这章讲了什么</em>
+                    <i class="sp"></i>
+                    <el-button v-if="!rd.outlineEdit" size="small" text @click="editOutline">
+                      {{ rd.outlines[rd.no] ? '编辑' : '写章纲' }}
+                    </el-button>
+                  </div>
+
+                  <div v-if="rd.outlines[rd.no] && !rd.outlineEdit" class="rd-outline-tx">
+                    {{ rd.outlines[rd.no].text }}
+                  </div>
+
+                  <div v-if="rd.outlineEdit" class="rd-note-edit">
+                    <el-input v-model="rd.outlineDraft" type="textarea" :rows="3" resize="none"
+                              placeholder="这章讲了什么：谁做了什么、推进了什么、结尾留了什么钩子…"
+                              @keydown.ctrl.enter.prevent="saveOutline"></el-input>
+                    <div class="rd-note-btns">
+                      <el-button size="small" type="primary" :loading="rd.outlineSaving" @click="saveOutline">保存章纲</el-button>
+                      <el-button size="small" plain @click="rd.outlineEdit = false">取消</el-button>
+                      <span>Ctrl + Enter 保存</span>
+                    </div>
+                  </div>
+                </div>
 
                 <div class="rd-nav">
                   <el-button plain :disabled="rdPos <= 0" @click="openChapter(rd.chapters[rdPos - 1].n)">上一章</el-button>
