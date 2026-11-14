@@ -3,6 +3,7 @@
 数据来自 QQ阅读 网页版，不用登录、不用模拟器。两件事分开做：
 
   GET /api/reader/books                  拆书列表（每本一张封面卡）
+  DELETE /api/reader/books/{bid}         从拆书列表里删掉一本
   GET /api/reader/{bid}/toc              目录（缓存，?refresh=1 重抓）
   GET /api/reader/{bid}/chapter/{no}     某一章正文（缓存）
   GET /api/reader/history                最近读过
@@ -329,8 +330,25 @@ def books(req):
     return {"ok": True, "count": len(items), "items": items}
 
 
-# ---------- 最近读过 ----------
+@router.delete(r"/api/reader/books/(?P<bid>\d+)")
+def drop_book(req):
+    """从拆书列表里删掉一本书。
 
+    删的是这台机器上的拆书记录：目录、缓存的正文章节、阅读进度一起清掉，
+    下次再拆这本书会重新抓一遍。扫榜的 books / entries 不受影响。
+    """
+    bid = req.params["bid"]
+    with db.tx() as con:
+        texts = con.execute("DELETE FROM read_text WHERE bid = ?", (bid,)).rowcount
+        chapters = con.execute("DELETE FROM read_chapters WHERE bid = ?", (bid,)).rowcount
+        con.execute("DELETE FROM read_history WHERE bid = ?", (bid,))
+        books = con.execute("DELETE FROM read_books WHERE bid = ?", (bid,)).rowcount
+    if not books:
+        return json_response({"ok": False, "error": "这本书不在拆书列表里"}, 404)
+    return {"ok": True, "bid": bid, "chapters": chapters, "texts": texts}
+
+
+# ---------- 最近读过 ----------
 @router.get(r"/api/reader/history")
 def history(req):
     limit = req.arg_int("limit", 8)

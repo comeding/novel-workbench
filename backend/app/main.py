@@ -61,7 +61,7 @@ class Handler(SimpleHTTPRequestHandler):
     # ---------- 分发 ----------
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Token")
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
@@ -88,6 +88,14 @@ class Handler(SimpleHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         if parsed.path.startswith("/api/"):
             return self._api("POST", parsed, body)
+        return json_response({"ok": False, "error": "接口不存在"}, 404)
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        if parsed.path.startswith("/api/"):
+            return self._api("DELETE", parsed, body)
         return json_response({"ok": False, "error": "接口不存在"}, 404)
 
     def _api(self, method, parsed, body):

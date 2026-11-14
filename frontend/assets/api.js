@@ -120,6 +120,8 @@ const WBAPI = (function () {
     readerChapter: (bid, no) => get('/api/reader/' + encodeURIComponent(bid) + '/chapter/' +
                                     encodeURIComponent(no), null, 45000),
     readerHistory: () => get('/api/reader/history', null, 8000),
+    readerDropBook: (bid) => request('/api/reader/books/' + encodeURIComponent(bid),
+                                     { method: 'DELETE' }, 15000),
     agentBase: AGENT,
     /* 走的是看板后端代理，多一跳（浏览器 → 后端 → 宿主机），
      * 2.5 秒在网络不好时不够用，给到 8 秒。 */

@@ -590,6 +590,7 @@ body {
 }
 
 .rl-card {
+  position: relative;
   cursor: pointer; overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -622,6 +623,47 @@ body {
   padding: 2px 8px; border-radius: 999px;
   background: rgba(23, 34, 58, .66);
   color: #fff; font-size: 11px; font-style: normal; letter-spacing: .2px;
+}
+
+/* 右上角「移除」：平时淡着，鼠标移上来才实心，别抢封面的视线 */
+.rl-del {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  width: 24px; height: 24px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(20, 30, 52, .58); color: #fff; font-size: 13px;
+  opacity: .42; transform: scale(.94);
+  transition: opacity .16s ease, transform .16s ease, background .16s ease;
+}
+.rl-card:hover .rl-del { opacity: 1; transform: none; }
+.rl-del:hover { background: #d9503f; }
+
+/* 刚点了「拆书」、目录还在抓的占位卡：不能点，封面上盖一层转圈 */
+.rl-card.waiting { cursor: default; }
+.rl-card.waiting:hover { transform: none; box-shadow: var(--shadow); border-color: var(--line); }
+.rl-card.waiting:hover .rl-info b { color: var(--ink); }
+.rl-wait {
+  position: absolute; inset: 0; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  background: linear-gradient(152deg, #cddffb 0%, #e3eeff 55%, #f2f7ff 100%);
+  color: #3d5784; font-size: 12px;
+}
+/* 一道白光从左扫到右，说明「在做事」，比一个静止的空白块清楚 */
+.rl-wait::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, .6) 50%, transparent 75%);
+  transform: translateX(-100%);
+  animation: rlshim 1.5s ease-in-out infinite;
+}
+@keyframes rlshim { to { transform: translateX(100%); } }
+.rl-wait .spin, .rl-wait span { position: relative; z-index: 1; }
+.rl-wait .spin { width: 20px; height: 20px; }
+
+/* 拆完 / 已在列表里：闪一下底色，帮人在一屏卡里定位到那一本 */
+.rl-card.hot { animation: rlhot 1.9s ease; }
+@keyframes rlhot {
+  0%, 100% { box-shadow: var(--shadow); border-color: var(--line); }
+  18%, 62% { border-color: #7aa8f5; box-shadow: 0 0 0 3px rgba(61, 123, 253, .18); }
 }
 
 .rl-info { padding: 10px 11px 12px; display: flex; flex-direction: column; gap: 4px; }

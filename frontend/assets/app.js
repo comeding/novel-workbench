@@ -63,8 +63,9 @@
         /* 页面：qq = 榜单，readlist = 拆书列表，read = 拆书阅读，ver = 版本控制 */
         page: 'qq',
 
-        /* 拆书列表：read_books 一行一张封面卡，点开进拆书阅读 */
-        rl: { items: [], loading: false, err: '' },
+        /* 拆书列表：read_books 一行一张封面卡，点开进拆书阅读。
+           starting = 刚点「拆书」正在抓目录的书，先摆一张「抓取中」占位卡 */
+        rl: { items: [], loading: false, err: '', starting: [], flash: '' },
 
         /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
            所以列表只渲染可视区那几十行。side=false 时目录收起，正文铺开 */
@@ -503,25 +504,125 @@
         this.loadReadList();
       },
 
-      async loadReadList() {
+      async loadReadList(force) {
         const rl = this.rl;
-        if (rl.loading) return;
-        rl.loading = true; rl.err = '';
-        try {
-          const d = await WBAPI.readerBooks();
-          /* broken 标记封面加载失败，失败后退回首字母占位，别留一张破图 */
-          rl.items = ((d && d.items) || []).map(x => Object.assign({}, x, { broken: false }));
-        } catch (e) {
-          rl.err = (e && e.message) || '读不到拆书记录';
-        } finally {
-          rl.loading = false;
+        if (rl.loading) {
+          /* 上一轮还在路上：普通刷新就算了，force 时等它落地再拉一次，
+             否则刚拆完的新书会漏在列表外面 */
+          if (!force) return;
+          try { await rl._p; } catch (e) {}
         }
+        rl.loading = true; rl.err = '';
+        rl._p = (async () => {
+          try {
+            const d = await WBAPI.readerBooks();
+            /* broken 标记封面加载失败，失败后退回首字母占位，别留一张破图 */
+            rl.items = ((d && d.items) || []).map(x => Object.assign({}, x, { broken: false }));
+          } catch (e) {
+            rl.err = (e && e.message) || '读不到拆书记录';
+          } finally {
+            rl.loading = false;
+          }
+        })();
+        return rl._p;
       },
 
       fmtWords(n) {
         n = Number(n) || 0;
         if (!n) return '';
         return n >= 10000 ? (n / 10000).toFixed(1) + ' 万字' : exact(n) + ' 字';
+      },
+
+      /* ---------- 扫榜详情里点「拆书」 ----------
+       * 顺序是「先跳拆书列表，后台抓目录，抓完列表多一张卡」：
+       * 目录要现抓两秒起（长篇一万多章），停在榜单页转圈会让人以为没点上，
+       * 跳到列表先看到自己的书，反而更踏实。
+       * 已经拆过的书不再抓一遍，直接闪一下把卡片点出来。
+       */
+      async startRead(bid, title) {
+        const id = String(bid || '');
+        if (!id) return;
+        this.drawer = false;
+        this.stopVer();
+        this.page = 'readlist';
+        this.scrollTop();
+        this.loadReadList();
+
+        const have = this.rl.items.find(b => String(b.bid) === id);
+        if (have) {
+          this.flashCard(id);
+          ElMessage.info('《' + have.title + '》已经在拆书列表里，点封面接着读');
+          return;
+        }
+        if (this.isStarting(id)) return;
+
+        const rl = this.rl;
+        rl.starting.push({ bid: id, title: title || '' });
+        try {
+          const d = await WBAPI.readerToc(id, false);
+          if (!d || !d.ok) throw new Error((d && d.error) || '目录没抓到');
+          await this.loadReadList(true);
+          this.flashCard(id);
+          const n = d.free_count || 0;
+          ElMessage.success(d.cached
+            ? '《' + (d.title || title) + '》本来就在列表里，目录已同步'
+            : '《' + (d.title || title) + '》拆好了' + (n ? ' · 免费 ' + n + ' 章' : ''));
+        } catch (e) {
+          ElMessage.error('《' + (title || id) + '》没拆成：'
+            + ((e && e.message) || '网络问题，过会儿再试'));
+        } finally {
+          rl.starting = rl.starting.filter(p => p.bid !== id);
+        }
+      },
+
+      isStarting(bid) {
+        const id = String(bid || '');
+        return !!id && this.rl.starting.some(p => p.bid === id);
+      },
+
+      /* 刚进来的那本书闪一下，好在一屏几十张卡里找到它 */
+      flashCard(bid) {
+        this.rl.flash = String(bid || '');
+        clearTimeout(this._flashT);
+        this._flashT = setTimeout(() => { this.rl.flash = ''; }, 2000);
+      },
+
+      /* 从拆书列表移除：删库里的拆书记录（目录 + 正文 + 进度），扫榜数据不动 */
+      async dropRead(b) {
+        if (!b) return;
+        const extra = b.saved || b.words
+          ? '，连带已缓存的 ' + (b.saved || 0) + ' 章 / ' + (this.fmtWords(b.words) || '0 字')
+          : '';
+        try {
+          await ElMessageBox.confirm(
+            '《' + b.title + '》会从拆书列表里消失' + extra
+              + '。扫榜数据不受影响，以后还能重新拆。',
+            '从拆书列表移除',
+            { confirmButtonText: '移除', cancelButtonText: '留着', type: 'warning' });
+        } catch (e) {
+          return;
+        }
+        try {
+          await WBAPI.readerDropBook(b.bid);
+        } catch (e) {
+          /* 404 = 库里本来就没有这条记录，按删掉处理 */
+          if (e.status !== 404) {
+            ElMessage.error('删不掉：' + ((e && e.message) || '网络问题'));
+            return;
+          }
+        }
+        this.rl.items = this.rl.items.filter(x => String(x.bid) !== String(b.bid));
+        /* 正在读的就是这本：连阅读页一起退干净，别停在一本已经不在列表里的书 */
+        if (String(this.rd.bid) === String(b.bid)) {
+          Object.assign(this.rd, {
+            bid: '', title: '', author: '', total: 0, freeCount: 0,
+            chapters: [], no: 0, q: '', err: '', warn: '',
+            text: { title: '', paras: [], words: 0, paid: false }
+          });
+          try { localStorage.removeItem('wb.read'); } catch (e) {}
+        }
+        this.loadRecent();
+        ElMessage.success('已移除《' + b.title + '》');
       },
 
       /* ---------- 拆书 ----------

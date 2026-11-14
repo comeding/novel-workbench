@@ -67,6 +67,12 @@ class Router:
             return func
         return deco
 
+    def delete(self, pattern):
+        def deco(func):
+            self.add("DELETE", pattern, func)
+            return func
+        return deco
+
     def dispatch(self, req):
         for method, rx, func in self.routes:
             if method != req.method:
