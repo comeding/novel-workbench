@@ -12,7 +12,7 @@
   POST /api/reader/{bid}/notes           写 / 改一条笔记（text 传空 = 删除）
   DELETE /api/reader/{bid}/notes/{no}/{para}   删一条
   GET /api/reader/docs                   拆书文件列表（有笔记的书）
-  GET /api/reader/docs/{bid}             这本书的拆书文件（含 markdown，可导出）
+  GET /api/reader/docs/{bid}             这本书的拆书文件（含 markdown，复制全文用）
 
 免费 / 付费
 ----------
@@ -433,7 +433,7 @@ def drop_note(req):
 
 # ---------- 拆书文件 ----------
 # 拆书文件不是另存一份文档，而是「把这本书的笔记按章攒起来」的实时视图：
-# 笔记改了文件立刻跟着变，不会出现两份对不上的内容。导出时才落成 .md。
+# 笔记改了文件立刻跟着变，不会出现两份对不上的内容。
 
 # 目录名里的「第 12 章」：有就不用再拿章节号拼一遍，免得出现「第 12 章　第 12 章 标题」
 RE_CH_NO = re.compile(r"^第\s*[0-9０-９零〇一二三四五六七八九十百千万两]+\s*章")
@@ -446,7 +446,7 @@ def _chapter_heading(no, title):
     return "第 %d 章" % no + ("　" + t if t else "")
 
 def _doc_markdown(meta, chapters):
-    """拆书文件的 markdown 版：导出、复制都直接用它。"""
+    """拆书文件的 markdown 版：「复制全文」直接用它。"""
     out = ["# 《%s》拆书文件" % meta["title"], ""]
     sub = []
     if meta["author"]:
@@ -455,7 +455,7 @@ def _doc_markdown(meta, chapters):
         sub.append("全书 %d 章" % meta["total"])
     sub.append("%d 章有笔记　·　%d 条章纲　·　%d 条批注"
                % (meta["chapters"], meta["outlines"], meta["notes"]))
-    sub.append("导出 %s" % meta["exported_at"])
+    sub.append("整理于 %s" % meta["exported_at"])
     out += ["> " + "　·　".join(sub), ""]
 
     for c in chapters:

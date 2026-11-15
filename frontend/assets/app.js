@@ -562,7 +562,7 @@
 
       /* ---------- 拆书文件 ----------
        * 文件不是另存的一份文档，而是「这本书的笔记按章攒起来」的实时视图：
-       * 写一条批注，文件立刻多一条，不会有版本对不上的问题。导出时才落成 .md。
+       * 写一条批注，文件立刻多一条，不会有版本对不上的问题。
        */
       openDocs() {
         this.page = 'docs';
@@ -635,28 +635,10 @@
         const done = () => ElMessage.success('全文已复制，可以直接贴到笔记软件里');
         if (navigator.clipboard && window.isSecureContext) {
           navigator.clipboard.writeText(md).then(done)
-            .catch(() => ElMessage.warning('复制失败，用「导出 .md」吧'));
+            .catch(() => ElMessage.warning('复制失败，可以手动选中正文复制'));
         } else {
-          ElMessage.info('这个地址不能直接读剪贴板，用「导出 .md」吧');
+          ElMessage.info('这个地址不能直接读剪贴板，请手动选中正文复制');
         }
-      },
-
-      exportDoc() {
-        const md = this.doc.markdown || '';
-        if (!md) { ElMessage.info('这份文件还是空的'); return; }
-        /* 文件名里不能有 \ / : * ? " < > |，书名里这些都换成下划线 */
-        const name = ('《' + (this.doc.title || this.doc.bid) + '》拆书文件')
-          .replace(/[\\/:*?"<>|]/g, '_');
-        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name + '.md';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-        ElMessage.success('已导出 ' + name + '.md');
       },
 
       /* 从拆书文件里「去读这一章」：进阅读页并翻到那一章 */

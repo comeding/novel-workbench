@@ -416,7 +416,7 @@ QQ阅读 的封面 CDN 规则兜底（`cover/{bid % 1000}/{bid}/t5_{bid}.jpg`）
 卡上写作「N 条笔记 / 章纲几条 / 批注几条」。点封面进去是按章排好的文档：
 每章一段章纲、下面跟着这一章的批注（带原文摘录）。文件不是另存的一份快照，
 而是笔记的实时汇总——改一条批注，文件立刻跟着变，不会出现两份对不上的内容。
-右上角「导出 .md」存成 Markdown（`《书名》拆书文件.md`），「复制全文」直接贴进笔记软件。
+右上角「复制全文」把按章整理好的 Markdown 直接贴进笔记软件。
 拆书阅读页右上角的「拆书文件」按钮会带上这本书的笔记条数，一点就跳过来。
 
 数据来自 QQ阅读 网页版，不用登录、不用模拟器：
@@ -515,7 +515,7 @@ GET  /api/reader/{bid}/notes              拆书：这本书的全部笔记（�
 POST /api/reader/{bid}/notes              拆书：写 / 改一条笔记（text 传空 = 删除）
 DELETE /api/reader/{bid}/notes/{no}/{para} 拆书：删一条笔记（?kind=outline 删章纲）
 GET  /api/reader/docs                     拆书文件：写过笔记的书
-GET  /api/reader/docs/{bid}               拆书文件：某本书的章纲 + 批注 + markdown
+GET  /api/reader/docs/{bid}               拆书文件：某本书的章纲 + 批注 + markdown（复制全文用）
 ```
 
 `key` 取值：`vip`（会员榜）、`new`（新书榜）。
