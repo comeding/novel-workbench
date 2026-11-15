@@ -37,6 +37,7 @@
      表头固定 38；行高不写死，而是把「可用高度 ÷ 当前页条数」摊到每一行，
      这样一屏正好铺满到底，也不会露出半行。
      ABOVE 是「窗口顶 → 表格顶」，分三档：正常 / 矮屏（主视觉压一行）/ 极矮（收起主视觉）。 */
+  const BOARD_KEYS = ['vip', 'new', 'ticket'];
   const HEAD_H = 38, BELOW = 68;
   const ABOVE = 285, ABOVE_DENSE = 206, ABOVE_TINY = 133;
   const ROW_BASE = 50, ROW_MIN = 46, ROW_MAX = 64;
@@ -47,9 +48,9 @@
         loading: true,
         err: '',
         collectedAt: '',
-        boards: { vip: null, new: null },
+        boards: { vip: null, new: null, ticket: null },
         activeTab: 'vip',
-        state: { vip: mkState(), new: mkState() },
+        state: { vip: mkState(), new: mkState(), ticket: mkState() },
         drawer: false,
         current: null,
         positions: [],
@@ -108,7 +109,7 @@
     },
 
     computed: {
-      tabName() { return this.activeTab === 'new' ? '新书榜' : '会员榜'; },
+      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '月票榜' }[this.activeTab] || '会员榜'; },
 
       cur() { return this.boards[this.activeTab] || { name: '', books: [], cats: {} }; },
       st() { return this.state[this.activeTab]; },
@@ -129,8 +130,10 @@
           return true;
         });
         const dir = s.dir;
+        /* 月票榜这一列是月票数，按 n 排；其余榜按详情页的加入书架人数排 */
+        const hot = this.activeTab === 'ticket' ? (b => b.n || 0) : shelfVal;
         out.sort((x, y) => {
-          if (s.sort === 'n') return (shelfVal(x) - shelfVal(y)) * dir;
+          if (s.sort === 'n') return (hot(x) - hot(y)) * dir;
           if (s.sort === 'r' || s.sort === 'w') return ((x[s.sort] || 0) - (y[s.sort] || 0)) * dir;
           return String(x[s.sort] || '').localeCompare(String(y[s.sort] || '')) * dir;
         });
@@ -185,7 +188,7 @@
           const cats = Object.keys(b.cats || {}).filter(c => c !== '全部').length;
           return `${exact(recs)} 条 · ${cats} 子榜`;
         };
-        return { vip: note('vip'), new: note('new') };
+        return { vip: note('vip'), new: note('new'), ticket: note('ticket') };
       },
 
       progPct() {
@@ -328,7 +331,7 @@
       total() { if (this.st.page > this.pages) this.st.page = 1; },
       /* 窗口高度变化时，没手动改过条数的榜单跟着窗口重算每页条数 */
       nFit(v) {
-        for (const k of ['vip', 'new']) {
+        for (const k of BOARD_KEYS) {
           const s = this.state[k];
           if (s && s.autoSize) s.size = Math.max(10, Math.min(100, v));
         }
@@ -338,7 +341,7 @@
     methods: {
       syncSize() {
         const n = Math.max(10, Math.min(100, this.nFit));
-        for (const k of ['vip', 'new']) {
+        for (const k of BOARD_KEYS) {
           const s = this.state[k];
           if (s && s.autoSize) s.size = n;
         }
@@ -354,7 +357,8 @@
         try {
           const D = await loadDataset();
           this.collectedAt = D.collected_at || '';
-          this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null };
+          this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null,
+                          ticket: D.boards['月票榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
           /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
@@ -394,7 +398,7 @@
         if (readBid) { this.openReader(readBid, ''); return; }
         const bid = sp.get('open');
         if (!bid) return;
-        for (const k of ['vip', 'new']) {
+        for (const k of BOARD_KEYS) {
           const b = this.boards[k]; if (!b) continue;
           const f = (b.books || []).find(x => String(x.bid) === String(bid));
           if (f) { this.activeTab = k; this.$nextTick(() => this.openBook(f)); return; }
@@ -485,7 +489,7 @@
       },
 
       openBookById(bid) {
-        for (const k of ['vip', 'new']) {
+        for (const k of BOARD_KEYS) {
           const b = this.boards[k]; if (!b) continue;
           const sets = [b.books || []].concat(Object.values(b.cats || {}).map(c => c.books || []));
           for (const arr of sets) {
@@ -507,7 +511,7 @@
       /* 一本书可能同时出现在总榜和若干分类榜里 */
       bookPositions(bid) {
         const out = [];
-        for (const k of ['vip', 'new']) {
+        for (const k of BOARD_KEYS) {
           const b = this.boards[k]; if (!b) continue;
           for (const cat of Object.keys(b.cats || {})) {
             const arr = b.cats[cat].books || [];

@@ -751,6 +751,9 @@
                 <el-tab-pane name="new">
                   <template #label>新书榜<em class="tab-note">{{ tabNote.new }}</em></template>
                 </el-tab-pane>
+                <el-tab-pane name="ticket">
+                  <template #label>月票榜<em class="tab-note">{{ tabNote.ticket }}</em></template>
+                </el-tab-pane>
               </el-tabs>
 
               <div class="toolbar">
@@ -809,9 +812,15 @@
               </el-table-column>
 
               <el-table-column width="130">
-                <template #header><span class="th" @click="sortBy('n')">加入书架<i class="ar" :class="arrow('n')"></i></span></template>
+                <template #header>
+                  <span class="th" @click="sortBy('n')">{{ activeTab === 'ticket' ? '月票' : '加入书架' }}<i class="ar" :class="arrow('n')"></i></span>
+                </template>
                 <template #default="{ row }">
-                  <span class="mono shelf"
+                  <span v-if="activeTab === 'ticket'" class="mono shelf"
+                        :title="'本月收到 ' + $fmt.exact(row.n) + ' 张月票（榜单接口原值）'">
+                    {{ $fmt.exact(row.n) }}
+                  </span>
+                  <span v-else class="mono shelf"
                         :title="row.sh ? row.sh + ' 人加入书架（详情页快照）' : '还没采到这本书的详情，加书架数未知；榜单热度 ' + $fmt.exact(row.n)">
                     {{ $fmt.shelf(row) }}
                   </span>

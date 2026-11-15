@@ -1,6 +1,6 @@
 # 网文工作站 · QQ阅读扫榜
 
-把 QQ阅读 App 的**会员榜**和**新书榜**（共 32 个数据集）真实抓下来，存进 SQLite，
+把 QQ阅读 App 的**会员榜**、**新书榜**和**月票榜**（共 33 个数据集）真实抓下来，存进 SQLite，
 用一个零构建的网页看板看排名、筛题材、比热度。
 
 不爬网页、不逆向签名、不依赖任何第三方包。采集端只要一台能上网的电脑，
@@ -26,7 +26,7 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 1. **接口直连（默认）**：App 请求榜单时打的是明文 HTTP 接口
    `GET https://commontgw.reader.qq.com/v7_6_6/listDispatch?actionId=<榜单id>&action=rank…`，
    不需要登录、不需要 cookie、不需要签名，返回的是完整 JSON。每个榜单一个 `actionId`，
-   一页 200 条即全量。32 个数据集跑完约 15 秒，字段与 App 里看到的完全一致。
+   一页 200 条即全量。33 个数据集跑完约 15 秒，字段与 App 里看到的完全一致。
 2. **模拟器兜底（备选）**：如果哪天接口加了校验，可以退回「让 App 自己请求、再从它本地缓存里
    把响应读回来」的老办法——`collector/collect.py` + MuMu 模拟器 + ROOT，一轮 3~5 分钟。
 
@@ -39,13 +39,13 @@ api_rank.py  →  GET listDispatch  →  POST /api/ingest  →  SQLite  →  GET
 | **数据是真的** | 接口返回什么就存什么，精确字数、榜单热度原样保留，不做任何估算 |
 | **零依赖** | 后端和采集器只用 Python 标准库，不需要 `pip install` 任何东西 |
 | **零构建** | 前端 Vue 3 + Element Plus 全在 `frontend/vendor/`，不访问任何 CDN，内网/离线可用 |
-| **十几秒一轮** | 直连接口，32 个数据集约 15 秒；跨平台，Windows / macOS / Linux 都能采 |
+| **十几秒一轮** | 直连接口，33 个数据集约 15 秒；跨平台，Windows / macOS / Linux 都能采 |
 | **可拆分** | 采集、存储、展示三块独立，笔记本采集 + 服务器看板是最常见的用法 |
 | **可重放** | 每轮采集的原始 JSON 都落盘在 `data/raw/`，后端挂了也能重新导入 |
 
 ### 看板上能做什么
 
-- 会员榜 / 新书榜 两个标签页，各 16 个分类子榜（含「全部」）
+- 会员榜 / 新书榜 / 月票榜 三个标签页；前两个各 16 个分类子榜（含「全部」），月票榜是 App 里的男频总榜（100 本）
 - 按分类筛选、按书名或作者搜索
 - 按排名、热度、字数、加入书架人数排序
 - 分页浏览，点击书名看详情（简介、标签、**近 24 小时新增收藏**、它在各榜单里的当前位置）
@@ -251,7 +251,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 ```
 Python      3.13.14（C:\...\python.exe）
 采集脚本    C:\...\collector\api_rank.py
-榜单配置    2 个榜单 / 32 个数据集（内置表）
+榜单配置    3 个榜单 / 33 个数据集（内置表）
 接口地址    https://commontgw.reader.qq.com/v7_6_6/listDispatch
 接口连通    OK  0.2 秒，返回 1 条（pageSize=1）
 本机服务    http://127.0.0.1:8765  未运行（TimeoutError）
@@ -293,8 +293,11 @@ GET https://commontgw.reader.qq.com/v7_6_6/listDispatch
 ```
 
 每个 `actionId` 对应一个榜单或分类子榜（`516604` 是会员榜全部，`533292` 是会员榜-玄幻，
-`535331` 是新书榜全部……），完整表在 `collector/api_rank.py` 的 `DEFAULT_CIDS`。
-`pagestamp=2` 返回空，说明一页 200 条就是全量，不用翻页。
+`535331` 是新书榜全部，`553522` 是男生月票榜……），完整表在 `collector/api_rank.py` 的 `DEFAULT_CIDS`。
+`pagestamp=2` 返回空，说明一页 200 条就是全量，不用翻页；月票榜只放出前 100 本。
+
+月票榜（`553522`）没有分类子榜——`cateId` 传任何值返回的都是同一份数据，App 里它就只有一个总榜。
+它列表里的 `num` 是本月月票数，所以看板上这一列的表头写「月票」而不是「加入书架」。
 
 响应里的 `bookList` 字段（`bid` / `title` / `author` / `catel2name` / `totalWords` /
 `lastChapter` / `num` / `free` / `vipstatus` / `sellWords` / `updateTime`）与 App 缓存里
@@ -520,7 +523,7 @@ GET  /api/reader/docs                     拆书文件：写过笔记的书
 GET  /api/reader/docs/{bid}               拆书文件：某本书的章纲 + 批注 + markdown（复制全文用）
 ```
 
-`key` 取值：`vip`（会员榜）、`new`（新书榜）。
+`key` 取值：`vip`（会员榜）、`new`（新书榜）、`ticket`（月票榜）。
 
 读接口不鉴权——看板本身是公开的。写接口（`ingest`、`details`）必须带 `X-Token`，
 或者用 `?token=` 查询参数。
@@ -533,8 +536,8 @@ GET  /api/reader/docs/{bid}               拆书文件：某本书的章纲 + �
 
 | 表 | 说明 |
 | --- | --- |
-| `boards` | 会员榜 / 新书榜，各自的 cid 和排序说明 |
-| `categories` | 32 个分类子榜（会员榜 16 + 新书榜 16），每个都是 App 真实请求回来的独立榜单 |
+| `boards` | 会员榜 / 新书榜 / 月票榜，各自的 cid 和排序说明 |
+| `categories` | 33 个分类子榜（会员榜 16 + 新书榜 16 + 月票榜 1），每个都是 App 真实请求回来的独立榜单 |
 | `books` | 书目维表，`bid` 主键，同一本书在多个分类里只存一份简介；`shelf`/`fans`/`score` 来自详情页 |
 | `entries` | 当前在榜记录，`(榜单, 分类, 书)` 唯一，存名次与指标 |
 | `shelf_history` | 书架数的历史快照，`(bid, at)` 唯一；唯一一张**不覆盖**的表，只增不改，用来算新增收藏 |
@@ -641,7 +644,7 @@ curl -O https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js
 ## 说明与边界
 
 - 采集对象是 QQ阅读 **公开可见的榜单数据**，不涉及登录凭据、不读取用户隐私内容。
-  接口无签名，但请自觉控制频率：一轮 15 秒、32 个请求，日常几小时一次足够，
+  接口无签名，但请自觉控制频率：一轮 15 秒、33 个请求，日常几小时一次足够，
   别写循环去压它。
 - 拆书读的是网页版**游客就能看的正文**，且只做免费章节：目录里只列免费的，
   正文只取免费的。付费章节平台本来只给两百字试读，本项目既不展示也不去请求，
