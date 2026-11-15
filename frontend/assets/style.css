@@ -837,6 +837,26 @@ body {
 .doc-outline.empty { background: #fafcff; border-left-color: #e2eaf8; }
 .doc-outline.empty p { font-size: 12.5px; }
 
+/* 章批注默认折起来，只留章纲，一屏能扫完这本书的骨架 */
+.doc-fold {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 2px; padding: 5px 10px;
+  border: 1px dashed #dde6f7; border-radius: 7px;
+  font-size: 12.5px; color: #5c6c8c; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.doc-fold:hover { border-color: #bed2f1; background: #f7faff; color: var(--blue); }
+.doc-fold b { color: var(--blue); font-weight: 600; }
+.doc-fold .arw {
+  width: 0; height: 0; flex: none;
+  border-left: 5px solid #9db0d0;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform .16s ease, border-left-color .16s ease;
+}
+.doc-fold.on .arw { transform: rotate(90deg); border-left-color: var(--blue); }
+.doc-fold em { margin-left: auto; font-style: normal; font-size: 11.5px; color: #a9b6cc; }
+.doc-notes { padding-top: 8px; }
+
 .doc-note { padding: 10px 0 12px; border-top: 1px dashed #e8eefb; }
 .doc-note:first-of-type { border-top: 0; padding-top: 2px; }
 .doc-q {

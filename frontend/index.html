@@ -408,6 +408,9 @@
                 </div>
                 <div class="doc-act">
                   <el-button plain @click="openReader(doc.bid, doc.title)">回去接着拆</el-button>
+                  <el-button v-if="docNoteChapters > 1" plain @click="toggleAllDocNotes">
+                    {{ allDocNotesOpen ? '收起全部批注' : '展开全部批注' }}
+                  </el-button>
                   <el-button plain @click="copyDoc">复制全文</el-button>
                 </div>
               </header>
@@ -428,11 +431,20 @@
                     <p class="dim">这章还没写章纲</p>
                   </div>
 
-                  <div v-for="(n, i) in c.notes" :key="n.para" class="doc-note">
-                    <div class="doc-q" v-if="n.quote">「{{ n.quote }}」</div>
-                    <div class="doc-tx">{{ n.text }}</div>
-                    <div class="doc-m">第 {{ n.para + 1 }} 段<template v-if="n.at"> · {{ (n.at || '').slice(5, 16) }}</template></div>
-                  </div>
+                  <template v-if="c.notes.length">
+                    <div class="doc-fold" :class="{ on: docOpen(c.no) }" @click="toggleDocNotes(c.no)">
+                      <i class="arw"></i>
+                      <span>本章批注 <b>{{ c.notes.length }}</b> 条</span>
+                      <em>{{ docOpen(c.no) ? '收起' : '展开' }}</em>
+                    </div>
+                    <div class="doc-notes" v-show="docOpen(c.no)">
+                      <div v-for="(n, i) in c.notes" :key="n.para" class="doc-note">
+                        <div class="doc-q" v-if="n.quote">「{{ n.quote }}」</div>
+                        <div class="doc-tx">{{ n.text }}</div>
+                        <div class="doc-m">第 {{ n.para + 1 }} 段<template v-if="n.at"> · {{ (n.at || '').slice(5, 16) }}</template></div>
+                      </div>
+                    </div>
+                  </template>
                 </section>
               </article>
             </template>

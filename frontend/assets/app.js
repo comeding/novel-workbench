@@ -72,6 +72,8 @@
         doc: {
           bid: '', title: '', author: '', cover: '', coverBroken: false, total: 0,
           chapters: [], notes: 0, outlines: 0, updated_at: '', markdown: '',
+          /* open = 展开着批注的章号。默认全收起，只留章纲，一屏扫完一本的骨架 */
+          open: {},
           loading: false, err: ''
         },
 
@@ -267,6 +269,15 @@
       /* 这本书一共有多少条笔记，页面顶部那个小数字用它 */
       rdMarkCount() {
         return Object.keys(this.rd.notes).length + Object.keys(this.rd.outlines).length;
+      },
+
+      /* 拆书文件里「有批注的章」：只有一章有就没必要给全局展开按钮 */
+      docNoteChapters() {
+        return this.doc.chapters.filter(c => c.notes && c.notes.length).length;
+      },
+      allDocNotesOpen() {
+        const cs = this.doc.chapters.filter(c => c.notes && c.notes.length);
+        return cs.length > 0 && cs.every(c => this.doc.open[c.no]);
       },
 
       /* ---------- 版本控制 ---------- */
@@ -594,7 +605,8 @@
         if (String(this.doc.bid) !== String(bid)) {
           Object.assign(this.doc, {
             bid: String(bid), title: title || '', author: '', cover: '', coverBroken: false,
-            total: 0, chapters: [], notes: 0, outlines: 0, updated_at: '', markdown: ''
+            total: 0, chapters: [], notes: 0, outlines: 0, updated_at: '', markdown: '',
+            open: {}
           });
         }
         await this.loadDoc(bid);
@@ -627,6 +639,24 @@
         this.page = 'docs';
         this.scrollTop();
         this.loadDocs();
+      },
+
+      /* 章批注默认收起，只露章纲——几百条批注全摊开反而看不见骨架 */
+      docOpen(no) {
+        return !!this.doc.open[no];
+      },
+
+      toggleDocNotes(no) {
+        if (this.doc.open[no]) delete this.doc.open[no];
+        else this.doc.open[no] = true;
+      },
+
+      toggleAllDocNotes() {
+        const open = {};
+        if (!this.allDocNotesOpen) {
+          for (const c of this.doc.chapters) if (c.notes && c.notes.length) open[c.no] = true;
+        }
+        this.doc.open = open;
       },
 
       copyDoc() {
