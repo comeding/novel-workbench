@@ -82,7 +82,7 @@
         /* 拆书：左边目录，右边正文。只列免费章节，目录可能有上万章，
            所以列表只渲染可视区那几十行。side=false 时目录收起，正文铺开 */
         rd: {
-          bid: '', title: '', author: '', total: 0, freeCount: 0,
+          bid: '', pf: '', title: '', author: '', total: 0, freeCount: 0,
           chapters: [], tocLoading: false, err: '', warn: '',
           q: '', no: 0, row: 34, scroll: 0, viewH: 620, side: true,
           textLoading: false,
@@ -791,7 +791,7 @@
        * 跳到列表先看到自己的书，反而更踏实。
        * 已经拆过的书不再抓一遍，直接闪一下把卡片点出来。
        */
-      async startRead(bid, title) {
+      async startRead(bid, title, pf) {
         const id = String(bid || '');
         if (!id) return;
         this.drawer = false;
@@ -811,7 +811,7 @@
         const rl = this.rl;
         rl.starting.push({ bid: id, title: title || '' });
         try {
-          const d = await WBAPI.readerToc(id, false);
+          const d = await WBAPI.readerToc(id, false, pf || '');
           if (!d || !d.ok) throw new Error((d && d.error) || '目录没抓到');
           await this.loadReadList(true);
           this.flashCard(id);
@@ -906,7 +906,7 @@
         }
       },
 
-      async openReader(bid, title) {
+      async openReader(bid, title, pf) {
         if (!bid) return;
         this.drawer = false;
         this.page = 'read';
@@ -916,6 +916,7 @@
         const rd = this.rd;
         const sameBook = String(rd.bid) === String(bid);
         rd.bid = String(bid);
+        rd.pf = pf || (sameBook ? rd.pf : '');
         rd.title = title || (sameBook ? rd.title : '');
         rd.author = sameBook ? rd.author : '';
         rd.total = sameBook ? rd.total : 0;
@@ -953,8 +954,9 @@
         rd.tocLoading = true; rd.err = ''; rd.warn = '';
         const want = rd.bid;
         try {
-          const d = await WBAPI.readerToc(want, refresh);
+          const d = await WBAPI.readerToc(want, refresh, rd.pf);
           if (String(rd.bid) !== String(want)) return;      /* 抓的过程中切书了 */
+          rd.pf = d.pf || rd.pf;
           rd.title = d.title || rd.title;
           rd.author = d.author || '';
           rd.total = d.total || 0;
@@ -994,7 +996,7 @@
         rd.text = { title: '', paras: [], words: 0, paid: false };
         try { localStorage.setItem('wb.read', JSON.stringify({ bid: rd.bid, no })); } catch (e) {}
         try {
-          const d = await WBAPI.readerChapter(rd.bid, no);
+          const d = await WBAPI.readerChapter(rd.bid, no, rd.pf);
           if (rd.no !== no) return;                        /* 连点时只认最后一次 */
           rd.text = { title: d.title || '', paras: d.paras || [],
                       words: d.words || 0, paid: !!d.paid };

@@ -303,7 +303,7 @@
 
               <article v-for="b in rl.items" :key="b.bid" class="rl-card"
                        :class="{ hot: rl.flash === String(b.bid) }"
-                       :title="b.title" @click="openReader(b.bid, b.title)">
+                       :title="b.title" @click="openReader(b.bid, b.title, b.pf)">
                 <button type="button" class="rl-del" title="从拆书列表移除"
                         @click.stop="dropRead(b)">
                   <el-icon><delete></delete></el-icon>
@@ -318,6 +318,7 @@
                   <b>{{ b.title }}</b>
                   <span class="au">{{ b.author || '佚名' }}</span>
                   <span class="meta">
+                    <em v-if="b.pf === 'fq'" class="dim">番茄</em>
                     <em v-if="b.free_count">免费 {{ b.free_count }} 章</em>
                     <em v-else class="dim">无免费章</em>
                     <i v-if="b.words">{{ fmtWords(b.words) }}</i>
@@ -920,13 +921,14 @@
     </div>
 
     <div class="dr-ft">
-      <el-button v-if="current.pf === 'fq'" type="primary" style="flex:1.3" @click="openFanqie">
-        <el-icon><top-right></top-right></el-icon>去番茄看
-      </el-button>
-      <el-button v-else type="primary" style="flex:1.3" :loading="isStarting(current.bid)"
-                 @click="startRead(current.bid, current.t)">
+      <el-button type="primary" style="flex:1.3" :loading="isStarting(current.bid)"
+                 @click="startRead(current.bid, current.t, current.pf)">
         <el-icon v-if="!isStarting(current.bid)"><notebook></notebook></el-icon>
         {{ isStarting(current.bid) ? '正在拆…' : '拆书' }}
+      </el-button>
+      <!-- 番茄的书也能拆，只是没有 QQ 的详情页/加书架数据；顺手留一个跳官网的入口 -->
+      <el-button v-if="current.pf === 'fq'" style="flex:.9" @click="openFanqie">
+        <el-icon><top-right></top-right></el-icon>去番茄看
       </el-button>
       <el-button style="flex:1" @click="copyBid">
         <el-icon><copy-document></copy-document></el-icon>复制 ID

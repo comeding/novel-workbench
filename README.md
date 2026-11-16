@@ -204,7 +204,8 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 │  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
 │  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
 │  ├─ detail.py                 加入书架人数补采（走网页版）
-│  ├─ chapter.py                拆书：抓目录和章节正文，也能单独跑
+│  ├─ chapter.py                拆书（QQ阅读）：抓目录和章节正文，也能单独跑
+│  ├─ fanqie_chapter.py         拆书（番茄小说）：同一套接口，目录明码标免费/锁定
 │  ├─ shelf_snapshot.py         每日书架数快照，供「近 24 小时新增收藏」做差
 │  ├─ push.py                   单份 json 上报
 │  ├─ env.py                    ADB / MuMu / 设备 / root / 分辨率 探测与自检（仅模拟器方案）
@@ -356,7 +357,8 @@ python dev/make_fanqie_font.py
 `rank_version` 反倒可有可无，传空字符串就返回最新一版，不用像以前那样猜版本号。
 
 番茄没有「加入书架」这个指标，列表里的 `read_count` 是**在读人数**，所以这一列
-表头写「在读」；这些书也没有 QQ 的详情页，抽屉里给的是「去番茄看」而不是「拆书」。
+表头写「在读」；这些书没有 QQ 的详情页，所以抽屉里多给一个「去番茄看」直跳官网，
+「拆书」照常可用（走 `collector/fanqie_chapter.py`）。
 
 ### 备选：模拟器方案
 
@@ -449,6 +451,14 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 点这张卡进「拆书阅读」，左边目录右边正文，点章节直接看。左侧菜单「拆书 / 拆书阅读」
 也能直接进，会自动接上上次读的那本。
 
+QQ阅读 和番茄小说都能拆，两边共用同一套阅读 / 笔记 / 拆书文件，抓取各走各的模块：
+`collector/chapter.py` 管 QQ，`collector/fanqie_chapter.py` 管番茄，对外接口一样
+（`fetch_toc` / `fetch_chapter` / `mark_free`），后端按 `read_books.pf` 选一个。
+番茄那边的免费判断更简单——目录里 `isChapterLock=True` 的只给 160 字试读，
+`needPay` 也是明码，不像 QQ 要拿第 1 章反推 free 变量；正文同样是混淆字体，
+直接用 `collector/fanqie_font.json` 那张表还原。番茄上架久一点的书一般只放开前
+10 章左右，剩下的 `isChapterLock=True` 只有试读，所以番茄书的「免费 N 章」常常是 10。
+
 **拆书列表**：左侧菜单「拆书 / 拆书列表」把拆过的书按封面铺开，一本一张卡。
 每张卡上的「已存 N 章」是这台机器上真的缓存下来的正文，不是目录规模；
 点封面直接进这本书的拆书页，接着上次的章节读。卡片顺序按最近动过的排前面。
@@ -456,6 +466,8 @@ python collector/push.py data/raw/xxx.json --push http://1.2.3.4:8765 --token xx
 一起从库里删掉（扫榜数据不动），以后重新拆就是全新的一份。
 封面来自目录页的 `og:image`，抓目录时一并存进 `read_books.cover`；老记录没有封面时按
 QQ阅读 的封面 CDN 规则兜底（`cover/{bid % 1000}/{bid}/t5_{bid}.jpg`），再失败就显示书名首字。
+番茄的封面是带签名的 CDN 地址、一天就过期，所以库里存原地址、前端拿的是
+`/api/reader/cover/{bid}` 这个代理：后端按 `x-expires` 判断快到期就重新取一次页面换新签名。
 
 **目录只列免费章节。** 一本 1.3 万章的长篇，免费章往往只有前 30 章加几章限免，
 付费章网页只给两百字试读，列出来除了浪费点击没别的用——所以拆书页从头到尾只有免费章节。
@@ -502,8 +514,10 @@ QQ阅读 的封面 CDN 规则兜底（`cover/{bid % 1000}/{bid}/t5_{bid}.jpg`）
 命令行也能用：
 
 ```bash
-python collector/chapter.py 61592341            # 看免费章节列表
-python collector/chapter.py 61592341 --read 1   # 看第 1 章
+python collector/chapter.py 61592341                    # QQ阅读：看免费章节列表
+python collector/chapter.py 61592341 --read 1           # QQ阅读：看第 1 章
+python collector/fanqie_chapter.py 7691315202393902142  # 番茄：看目录（标出哪些锁了）
+python collector/fanqie_chapter.py 7691315202393902142 --read 1
 ```
 
 ---
@@ -564,8 +578,9 @@ GET  /api/collect/status                  采集进度 + 日志尾部
 POST /api/collect/cancel                  中止
 GET  /api/reader/books                    拆书：拆过的书（封面、已存章节数、读到哪）
 DELETE /api/reader/books/{bid}            拆书：从列表里删掉这本书（目录 + 正文 + 进度）
-GET  /api/reader/{bid}/toc                拆书：目录（?refresh=1 重抓）
+GET  /api/reader/{bid}/toc                拆书：目录（?refresh=1 重抓，?pf=fq 首次抓番茄书）
 GET  /api/reader/{bid}/chapter/{no}       拆书：某一章正文（?refresh=1 重抓）
+GET  /api/reader/cover/{bid}              番茄封面代理（302 到当前可用的签名地址）
 GET  /api/reader/history                  拆书：最近读过的书
 GET  /api/reader/{bid}/notes              拆书：这本书的全部笔记（批注 + 章纲）
 POST /api/reader/{bid}/notes              拆书：写 / 改一条笔记（text 传空 = 删除）

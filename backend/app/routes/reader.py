@@ -32,7 +32,7 @@ import time
 
 from .. import db
 from ..config import ROOT as ROOT_DIR
-from ..router import Router, json_response
+from ..router import Router, Response, json_response
 
 # 抓取逻辑放在 collector/chapter.py：它同时是个能单独跑的脚本（python collector/chapter.py 123 --read 1），
 # 后端直接复用，免得同一套解析规则写两份。
@@ -41,6 +41,14 @@ if _CH_DIR not in sys.path:
     sys.path.insert(0, _CH_DIR)
 
 import chapter as chapter_src          # noqa: E402
+import fanqie_chapter as fanqie_src    # noqa: E402
+
+# 两个平台各一个抓取模块，对外接口一样（fetch_toc / fetch_chapter / mark_free）
+SRC = {"qq": chapter_src, "fq": fanqie_src}
+
+
+def _src(pf):
+    return SRC.get(pf or "qq") or chapter_src
 
 router = Router()
 
@@ -76,8 +84,57 @@ def _cover_url(bid):
     return COVER_TPL % (n % 1000, bid, bid)
 
 
-def _cover(bid, cover):
+def _cover(bid, cover, pf="qq"):
+    """前端能直接用的封面地址。
+
+    番茄的封面是带签名的 CDN 地址，一天就过期，存库那份不能直接给浏览器。
+    这里给一个代理地址，由 /api/reader/cover/{bid} 现签现跳，过期了自动换新的。
+    QQ 的封面路径是固定的，用存下来的地址，没有就按规则推。
+    """
+    if pf == "fq":
+        return "/api/reader/cover/%s" % bid
     return cover or _cover_url(bid)
+
+
+# 番茄封面现签地址的缓存：bid -> (url, 过期时间戳)
+_COVER_CACHE = {}
+_COVER_LOCK = threading.Lock()
+
+
+def _fresh_cover(bid):
+    """取一个还没过期的番茄封面地址，快过期就重新取一次页面。"""
+    now = time.time()
+    with _COVER_LOCK:
+        hit = _COVER_CACHE.get(bid)
+        if hit and hit[1] - now > 3600:      # 至少还能用一小时才给前端
+            return hit[0]
+    url, expire = fanqie_src.cover_url(bid)
+    if url and expire:
+        with _COVER_LOCK:
+            _COVER_CACHE[bid] = (url, expire)
+    return url
+
+
+@router.get(r"/api/reader/cover/(?P<bid>\d+)")
+def cover(req):
+    """番茄封面代理：302 到当前可用的签名地址。
+
+    签名地址一天过期，直接存库给前端的话第二天全是裂图。这里每次按需换新的，
+    缓存一小时，等于把签名问题挡在后端。
+    """
+    bid = req.params["bid"]
+    pf = _book_pf(bid)
+    if pf == "qq":                            # QQ 的封面是公开 CDN，直接跳
+        row = _book_row(bid)
+        url = ((row["cover"] if row and ("cover" in row.keys()) else "") or _cover_url(bid))
+        return Response(b"", 302, "text/plain; charset=utf-8", {"Location": url})
+    try:
+        url = _fresh_cover(bid)
+    except chapter_src.FetchError as e:
+        return json_response({"ok": False, "error": str(e)}, 404)
+    if not url:
+        return json_response({"ok": False, "error": "这本书没有封面"}, 404)
+    return Response(b"", 302, "text/plain; charset=utf-8", {"Location": url})
 
 
 # ---------- 读库 ----------
@@ -85,6 +142,17 @@ def _cover(bid, cover):
 def _book_row(bid):
     with db.reader() as con:
         return con.execute("SELECT * FROM read_books WHERE bid = ?", (bid,)).fetchone()
+
+
+def _book_pf(bid):
+    """这本书是哪个平台的。没拆过就不知道，调用方自己再兜一个默认值。"""
+    row = _book_row(bid)
+    if row is None:
+        return ""
+    try:
+        return row["pf"] or "qq"
+    except (IndexError, KeyError):       # 老库还没补列
+        return "qq"
 
 
 def _chapters(bid):
@@ -115,6 +183,7 @@ def _toc_json(bid, book, rows, cached):
     -1 表示当天没校准成功，一律先不给，让页面提示重抓目录，而不是混进付费章。
     """
     total = book["total"] or len(rows)
+    pf = (book["pf"] if "pf" in book.keys() else "") or "qq"
     free = [r for r in rows if r["free"] == 1]
     token = book["free_token"] or ""
     warn = ""
@@ -126,9 +195,10 @@ def _toc_json(bid, book, rows, cached):
         "ok": True,
         "cached": cached,
         "bid": bid,
+        "pf": pf,
         "title": book["title"] or "",
         "author": book["author"] or "",
-        "cover": _cover(bid, book["cover"] if "cover" in book.keys() else ""),
+        "cover": _cover(bid, book["cover"] if "cover" in book.keys() else "", pf),
         "total": total,
         "free_count": len(free),
         "calibrated": bool(token),
@@ -140,7 +210,7 @@ def _toc_json(bid, book, rows, cached):
 
 # ---------- 写库 ----------
 
-def _save_toc(bid, data, free_info):
+def _save_toc(bid, data, free_info, pf="qq"):
     free = free_info["free"] if free_info else None
     token = free_info["free_token"] if free_info else None
     stamp = _now()
@@ -152,13 +222,14 @@ def _save_toc(bid, data, free_info):
         con.executemany(
             "INSERT INTO read_chapters (bid, no, title, free, at) VALUES (?,?,?,?,?)", rows)
         con.execute(
-            "INSERT INTO read_books (bid, title, author, cover, total, free_count,"
-            " free_token, fetched_at) VALUES (?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(bid) DO UPDATE SET title=excluded.title, author=excluded.author,"
+            "INSERT INTO read_books (bid, pf, title, author, cover, total, free_count,"
+            " free_token, fetched_at) VALUES (?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(bid) DO UPDATE SET pf=excluded.pf, title=excluded.title,"
+            " author=excluded.author,"
             " cover=COALESCE(NULLIF(excluded.cover, ''), read_books.cover),"
             " total=excluded.total, free_count=excluded.free_count,"
             " free_token=excluded.free_token, fetched_at=excluded.fetched_at",
-            (bid, data["title"] or "", data["author"] or "", data.get("cover") or "",
+            (bid, pf or "qq", data["title"] or "", data["author"] or "", data.get("cover") or "",
              len(rows), sum(1 for v in free if v == 1) if free else 0, token or "", stamp))
 
 
@@ -183,16 +254,17 @@ def _touch(bid, no):
 
 # ---------- 抓目录 ----------
 
-def _build_toc(bid):
+def _build_toc(bid, pf="qq"):
     """抓目录 + 校准免费标记。返回 (data, free_info)。"""
-    data = chapter_src.fetch_toc(bid)
+    src = _src(pf)
+    data = src.fetch_toc(bid)
 
     # 第 1 章既用来校准，也顺手把正文缓存下来，用户点进来就是秒开。
     # 抓失败不影响目录本身，只是免费标记留空（前端显示「—」）。
     free_info = None
     try:
-        first = chapter_src.fetch_chapter(bid, 1)
-        free_info = chapter_src.mark_free(data["chapters"], first["paid"])
+        first = src.fetch_chapter(bid, 1)
+        free_info = src.mark_free(data["chapters"], first["paid"])
         _save_text(bid, first)
         # 第 1 章的名字在目录里常被压成变量，正文页有明文，补上
         if data["chapters"] and not data["chapters"][0]["title"]:
@@ -203,7 +275,7 @@ def _build_toc(bid):
     return data, free_info
 
 
-def _load_or_fetch_toc(bid, refresh=False):
+def _load_or_fetch_toc(bid, refresh=False, pf="qq"):
     if not refresh:
         book = _book_row(bid)
         if book:
@@ -232,8 +304,8 @@ def _load_or_fetch_toc(bid, refresh=False):
                 if rows:
                     return _toc_json(bid, book, rows, True), 200
 
-        data, free_info = _build_toc(bid)
-        _save_toc(bid, data, free_info)
+        data, free_info = _build_toc(bid, pf)
+        _save_toc(bid, data, free_info, pf)
         book = _book_row(bid)
         rows = _chapters(bid)
         return _toc_json(bid, book, rows, False), 200
@@ -245,8 +317,11 @@ def _load_or_fetch_toc(bid, refresh=False):
 def toc(req):
     bid = req.params["bid"]
     refresh = (req.arg("refresh") or "").lower() in ("1", "true", "yes")
+    # 平台：拆过的书以库里为准（同一个 bid 不会同时属于两个平台，书号长度都不一样），
+    # 没拆过就看前端传的 ?pf=，都没有按 QQ 处理
+    pf = _book_pf(bid) or (req.arg("pf") or "qq")
     try:
-        out, status = _load_or_fetch_toc(bid, refresh)
+        out, status = _load_or_fetch_toc(bid, refresh, pf)
     except chapter_src.FetchError as e:
         return json_response({"ok": False, "error": str(e)}, 502)
     except Exception as e:                        # noqa: BLE001
@@ -282,7 +357,8 @@ def chapter(req):
             }
 
     try:
-        ch = chapter_src.fetch_chapter(bid, no)
+        src = _src(_book_pf(bid) or (req.arg("pf") or "qq"))
+        ch = src.fetch_chapter(bid, no)
     except chapter_src.FetchError as e:
         return json_response({"ok": False, "error": str(e)}, 502)
 
@@ -312,7 +388,7 @@ def books(req):
     limit = max(1, min(1000, req.arg_int("limit", 200)))
     with db.reader() as con:
         rows = con.execute(
-            "SELECT b.bid, b.title, b.author, b.cover, b.total, b.free_count, b.fetched_at,"
+            "SELECT b.bid, b.pf, b.title, b.author, b.cover, b.total, b.free_count, b.fetched_at,"
             "       h.no AS last_no, h.at AS last_at,"
             "       (SELECT COUNT(*) FROM read_text t"
             "         WHERE t.bid = b.bid AND t.paid = 0) AS saved,"
@@ -323,9 +399,10 @@ def books(req):
             " ORDER BY COALESCE(h.at, b.fetched_at) DESC LIMIT ?", (limit,)).fetchall()
     items = [{
         "bid": r["bid"],
+        "pf": (r["pf"] or "qq"),
         "title": r["title"] or ("书 %s" % r["bid"]),
         "author": r["author"] or "",
-        "cover": _cover(r["bid"], r["cover"] or ""),
+        "cover": _cover(r["bid"], r["cover"] or "", r["pf"] or "qq"),
         "total": r["total"] or 0,
         "free_count": r["free_count"] or 0,
         "saved": r["saved"] or 0,
@@ -486,14 +563,15 @@ def docs(req):
             "       SUM(CASE WHEN m.kind = 'outline' THEN 1 ELSE 0 END) AS outlines,"
             "       COUNT(DISTINCT m.no) AS chapters,"
             "       MAX(m.at) AS updated_at,"
-            "       b.title, b.author, b.cover, b.total"
+            "       b.title, b.author, b.cover, b.total, b.pf"
             "  FROM read_marks m LEFT JOIN read_books b ON b.bid = m.bid"
             " GROUP BY m.bid ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
     items = [{
         "bid": r["bid"],
+        "pf": (r["pf"] or "qq"),
         "title": r["title"] or ("书 %s" % r["bid"]),
         "author": r["author"] or "",
-        "cover": _cover(r["bid"], r["cover"] or ""),
+        "cover": _cover(r["bid"], r["cover"] or "", r["pf"] or "qq"),
         "total": r["total"] or 0,
         "notes": r["notes"] or 0,
         "outlines": r["outlines"] or 0,
@@ -539,9 +617,11 @@ def doc(req):
     outline_n = sum(1 for c in chapters if c["outline"])
     meta = {
         "bid": bid,
+        "pf": ((book["pf"] if book and "pf" in book.keys() else "") or "qq"),
         "title": (book["title"] if book else "") or ("书 %s" % bid),
         "author": (book["author"] if book else "") or "",
-        "cover": _cover(bid, (book["cover"] if book and "cover" in book.keys() else "") or ""),
+        "cover": _cover(bid, (book["cover"] if book and "cover" in book.keys() else "") or "",
+                        (book["pf"] if book and "pf" in book.keys() else "") or "qq"),
         "total": (book["total"] if book else 0) or 0,
         "chapters": len(chapters),
         "notes": note_n,

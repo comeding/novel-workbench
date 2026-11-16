@@ -109,6 +109,7 @@ CREATE INDEX IF NOT EXISTS ix_shelf_hist ON shelf_history (bid, at);
 -- 一行就是一条「拆书记录」：拆书列表按这张表出卡片，封面用 cover。
 CREATE TABLE IF NOT EXISTS read_books (
     bid        TEXT PRIMARY KEY,
+    pf         TEXT DEFAULT 'qq',            -- 平台：qq = QQ阅读，fq = 番茄小说
     title      TEXT,
     author     TEXT,
     cover      TEXT,                        -- 封面图 URL（目录页 og:image，空则按规则推）

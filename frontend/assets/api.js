@@ -115,10 +115,12 @@ const WBAPI = (function () {
 
     /* 拆书：目录第一次要现抓（长篇一万多章约两秒），给足超时 */
     readerBooks: () => get('/api/reader/books', null, 15000),
-    readerToc: (bid, refresh) => get('/api/reader/' + encodeURIComponent(bid) + '/toc',
-                                     refresh ? { refresh: 1 } : null, 90000),
-    readerChapter: (bid, no) => get('/api/reader/' + encodeURIComponent(bid) + '/chapter/' +
-                                    encodeURIComponent(no), null, 45000),
+    readerToc: (bid, refresh, pf) => get('/api/reader/' + encodeURIComponent(bid) + '/toc',
+                                         Object.assign({}, refresh ? { refresh: 1 } : {},
+                                                       pf ? { pf } : {}), 90000),
+    readerChapter: (bid, no, pf) => get('/api/reader/' + encodeURIComponent(bid) + '/chapter/' +
+                                        encodeURIComponent(no),
+                                        pf ? { pf } : null, 45000),
     readerHistory: () => get('/api/reader/history', null, 8000),
     readerDropBook: (bid) => request('/api/reader/books/' + encodeURIComponent(bid),
                                      { method: 'DELETE' }, 15000),

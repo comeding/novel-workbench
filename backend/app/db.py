@@ -84,6 +84,9 @@ def _drop_legacy(con):
         cols = _cols(con, "read_books")
         if "cover" not in cols:
             con.execute("ALTER TABLE read_books ADD COLUMN cover TEXT")
+        # 补平台列（番茄接进来之前，拆书只支持 QQ阅读）
+        if "pf" not in cols:
+            con.execute("ALTER TABLE read_books ADD COLUMN pf TEXT DEFAULT 'qq'")
 
     # books 补详情页字段（加入书架人数 / 书友 / 评分），CREATE TABLE IF NOT EXISTS 不会补列
     if "books" in names:
