@@ -24,7 +24,7 @@ from ..config import Config
 
 # 榜单中文名 -> 前端路由用的 key。新榜单不在这里也没关系，会自动生成 key。
 BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "新书月票榜": "ticket",
-              "番茄新书榜": "fq"}
+              "番茄新书榜": "fq", "番茄新书总榜": "fqs"}
 
 INTRO_MAX = 400
 
@@ -145,7 +145,13 @@ def ingest(payload):
                         "INSERT INTO books (bid, title, author, cat2, cat3, intro, updated_at)"
                         " VALUES (?, ?, ?, ?, ?, ?, ?)"
                         " ON CONFLICT(bid) DO UPDATE SET title = excluded.title,"
-                        " author = excluded.author, cat2 = excluded.cat2, cat3 = excluded.cat3,"
+                        " author = excluded.author,"
+                        # 番茄新书总榜是跨分类的，接口不给分类；采它的时候别把
+                        # 新书榜那边带下来的分类覆盖成空
+                        " cat2 = CASE WHEN excluded.cat2 <> '' THEN excluded.cat2"
+                        "             ELSE books.cat2 END,"
+                        " cat3 = CASE WHEN excluded.cat3 <> '' THEN excluded.cat3"
+                        "             ELSE books.cat3 END,"
                         " intro = CASE WHEN length(excluded.intro) > length(books.intro)"
                         "              THEN excluded.intro ELSE books.intro END,"
                         " updated_at = excluded.updated_at",

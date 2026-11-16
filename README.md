@@ -1,7 +1,7 @@
 # 网文工作站 · 多平台扫榜
 
-把 **QQ阅读** 的会员榜 / 新书榜 / 新书月票榜（33 个数据集）和 **番茄小说** 的新书榜
-（都市脑洞、玄幻脑洞）真实抓下来，存进 SQLite，用一个零构建的网页看板看排名、筛题材、比热度。
+把 **QQ阅读** 的会员榜 / 新书榜 / 新书月票榜（33 个数据集）和 **番茄小说** 的新书总榜、
+新书榜（都市脑洞、玄幻脑洞）真实抓下来，存进 SQLite，用一个零构建的网页看板看排名、筛题材、比热度。
 
 不逆向签名、不依赖任何第三方包。采集端只要一台能上网的电脑，
 **不需要模拟器、不需要装 App、不需要登录**，一轮约 20 秒。库和看板可以放在任何地方。
@@ -26,7 +26,7 @@ collect_all.py → 各平台榜单接口  →  POST /api/ingest  →  SQLite  �
 1. **接口直连（默认）**：App 请求榜单时打的是明文 HTTP 接口
    `GET https://commontgw.reader.qq.com/v7_6_6/listDispatch?actionId=<榜单id>&action=rank…`，
    不需要登录、不需要 cookie、不需要签名，返回的是完整 JSON。每个榜单一个 `actionId`，
-   一页 200 条即全量。35 个数据集跑完约 20 秒，字段与 App 里看到的完全一致。
+   一页 200 条即全量。36 个数据集跑完约 30 秒，字段与 App 里看到的完全一致。
 2. **模拟器兜底（备选）**：如果哪天接口加了校验，可以退回「让 App 自己请求、再从它本地缓存里
    把响应读回来」的老办法——`collector/collect.py` + MuMu 模拟器 + ROOT，一轮 3~5 分钟。
 
@@ -39,7 +39,7 @@ collect_all.py → 各平台榜单接口  →  POST /api/ingest  →  SQLite  �
 | **数据是真的** | 接口返回什么就存什么，精确字数、榜单热度原样保留，不做任何估算 |
 | **零依赖** | 后端和采集器只用 Python 标准库，不需要 `pip install` 任何东西 |
 | **零构建** | 前端 Vue 3 + Element Plus 全在 `frontend/vendor/`，不访问任何 CDN，内网/离线可用 |
-| **二十秒一轮** | 直连接口，35 个数据集约 20 秒；跨平台，Windows / macOS / Linux 都能采 |
+| **半分钟一轮** | 直连接口，36 个数据集约 30 秒；跨平台，Windows / macOS / Linux 都能采 |
 | **可拆分** | 采集、存储、展示三块独立，笔记本采集 + 服务器看板是最常见的用法 |
 | **可重放** | 每轮采集的原始 JSON 都落盘在 `data/raw/`，后端挂了也能重新导入 |
 
@@ -48,8 +48,9 @@ collect_all.py → 各平台榜单接口  →  POST /api/ingest  →  SQLite  �
 - 左侧「扫榜」按平台拆成两个子菜单：**QQ阅读**、**番茄小说**，各看各的榜
 - QQ阅读 三个标签页：会员榜 / 新书榜 / 新书月票榜，前两个各 16 个分类子榜，
   新书月票榜是创世本月入V新书的月票排行
-- 番茄小说 只有一个新书榜，标签页换成它的两个分类：都市脑洞 / 玄幻脑洞
-- 番茄新书榜按「在读人数」排序，书名和作者是从字体里还原出来的（见下文）
+- 番茄小说 两个标签页：**新书总榜**（男频连载按热度，跨分类 200 条）、**新书榜**
+  （都市脑洞 / 玄幻脑洞两个分类，靠右上角分类下拉切换）
+- 番茄两个榜都按「在读人数」排序，书名和作者是从字体里还原出来的（见下文）
 - 按分类筛选、按书名或作者搜索
 - 按排名、热度、字数、加入书架人数排序
 - 分页浏览，点击书名看详情（简介、标签、**近 24 小时新增收藏**、它在各榜单里的当前位置）
@@ -198,8 +199,9 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 ├─ collector/                   采集端
 │  ├─ collect_all.py            主入口（默认）：分派 QQ阅读 与 番茄，页面「立即采集」跑的就是它
 │  ├─ api_rank.py               QQ阅读：直连榜单接口，33 个数据集约 15 秒
-│  ├─ fanqie.py                 番茄：新书榜（都市脑洞 / 玄幻脑洞），含书名还原
-│  ├─ fanqie_font.json          番茄的私有区字符 → 汉字对照表（362 条）
+│  ├─ fanqie.py                 番茄：新书榜（都市脑洞 / 玄幻脑洞）+ 新书总榜，含书名还原
+│  ├─ fanqie_font.json          番茄榜单页的私有区字符 → 汉字对照表（362 条）
+│  ├─ fanqie_font_lib.json      番茄书库页（新书总榜）的对照表，另一套字体
 │  ├─ collect.py                备选入口：模拟器方案，自检 → 采两个榜 → 补详情 → 上报
 │  ├─ rank_cids.json            可选，覆盖内置的榜单 actionId 表（接口改版时改这里）
 │  ├─ collectors/qqreader_app.py  模拟器方案的榜单采集（ADB 驱动 + 缓存读取）
@@ -218,7 +220,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 │  ├─ supervisor.py             监听 .py 改动自动重启（容器里跑的就是它）
 │  ├─ updater.py                更新内核：查版本 / 拉代码 / 重建 / 探活
 │  ├─ update.py                 命令行一键更新（纯镜像与裸机用）
-│  ├─ make_fanqie_font.py       重建番茄的字体对照表（番茄换混淆字体时才跑）
+│  ├─ make_fanqie_font.py       重建番茄的字体对照表（加 --lib 生成书库那套）
 │  └─ agent.py                  宿主执行器：纯镜像部署时的兜底，一般用不到
 ├─ config.json                  采集端可选配置（模拟器方案的 adb 路径、设备序列号等）
 ├─ Dockerfile / docker-compose.yml
@@ -260,7 +262,7 @@ python dev/update.py --check   # 只看差几个版本，什么都不动
 ```
 Python      3.13.14（C:\...\python.exe）
 采集脚本    C:\...\collector\api_rank.py
-榜单配置    4 个榜单 / 35 个数据集（内置表）
+榜单配置    5 个榜单 / 36 个数据集（内置表）
 接口地址    https://commontgw.reader.qq.com/v7_6_6/listDispatch
 接口连通    OK  0.2 秒，返回 1 条（pageSize=1）
 本机服务    http://127.0.0.1:8765  未运行（TimeoutError）
@@ -278,9 +280,10 @@ Python      3.13.14（C:\...\python.exe）
 ## 采集
 
 ```bash
-python collector/collect_all.py              # QQ阅读 + 番茄，约 20 秒，采完自动入库
-python collector/collect_all.py 番茄新书榜    # 只采番茄
-python collector/collect_all.py 会员榜 番茄新书榜          # 指定几个榜
+python collector/collect_all.py              # QQ阅读 + 番茄，约 30 秒，采完自动入库
+python collector/collect_all.py 番茄新书总榜  # 只采番茄的新书总榜
+python collector/collect_all.py 番茄新书榜    # 只采番茄的新书榜
+python collector/collect_all.py 会员榜 番茄新书榜  # 指定几个榜
 python collector/collect_all.py --no-upload  # 只落盘到 data/raw，不入库
 python collector/collect_all.py --push http://1.2.3.4:8765  # 推到别的机器
 
@@ -355,6 +358,36 @@ python dev/make_fanqie_font.py
 不对比一下根本看不出来。必须带 `gender=1&rankMold=1`。
 
 `rank_version` 反倒可有可无，传空字符串就返回最新一版，不用像以前那样猜版本号。
+
+**三、新书总榜在「书库」页，是另一套接口、另一套字体。** 页面地址
+`/library/audience1-stat1-count0/page_1?sort=hottes` 是纯客户端渲染的，HTML 里
+什么都没有，数据走：
+
+```
+GET https://fanqienovel.com/api/author/library/book_list/v0/
+    ?page_count=18&page_index=0&gender=1&category_id=-1
+    &creation_status=1&word_count=0&book_type=-1&sort=0
+```
+
+地址栏里的 `audience1-stat1-count0` 对应 `gender=1`（男频）、`creation_status=1`
+（连载中）、`word_count=0`（不限字数）；`sort=0` 就是页面上的 `?sort=hottes`（热度）。
+接口不用签名，翻页从 0 开始，前 5 页 18 条/页、再往后 10 条/页，脚本按 200 条封顶。
+
+这个接口有两个和榜单页不一样的地方：
+
+- **字数和在读也是混淆的字符串**，形如 `74.1万人在读`、`23.3万字`，不是数字，
+  得先还原汉字再解析中文数量级（`万` / `亿`）
+- **字体 key 藏在响应头里**：`x-tt-zhal: k=..;f=e26e946d8b2ccb7;d1=..`。书库页用
+  的是另一套子集字体，和榜单页不通用，所以对照表单独存成 `fanqie_font_lib.json`，
+  重建时加 `--lib`：
+
+```bash
+python dev/make_fanqie_font.py --lib
+```
+
+书库接口不返回分类，所以总榜没有「分类」这一列（同一本书在「新书榜」里出现过的，
+会沿用那边带下来的分类）；也不返回章节名，只给一个更新时间，所以详情里的
+「最新章节」显示占位。
 
 番茄没有「加入书架」这个指标，列表里的 `read_count` 是**在读人数**，所以这一列
 表头写「在读」；这些书没有 QQ 的详情页，所以抽屉里多给一个「去番茄看」直跳官网，
@@ -602,8 +635,8 @@ GET  /api/reader/docs/{bid}               拆书文件：某本书的章纲 + �
 
 | 表 | 说明 |
 | --- | --- |
-| `boards` | 会员榜 / 新书榜 / 新书月票榜 / 番茄新书榜，各自的 cid 和排序说明 |
-| `categories` | 35 个分类子榜（会员榜 16 + 新书榜 16 + 新书月票榜 1 + 番茄 2），每个都是接口真实返回的独立榜单 |
+| `boards` | 会员榜 / 新书榜 / 新书月票榜 / 番茄新书榜 / 番茄新书总榜，各自的 cid 和排序说明 |
+| `categories` | 36 个分类子榜（会员榜 16 + 新书榜 16 + 新书月票榜 1 + 番茄新书榜 2 + 番茄新书总榜 1），每个都是接口真实返回的独立榜单 |
 | `books` | 书目维表，`bid` 主键，同一本书在多个分类里只存一份简介；`shelf`/`fans`/`score` 来自详情页 |
 | `entries` | 当前在榜记录，`(榜单, 分类, 书)` 唯一，存名次与指标 |
 | `shelf_history` | 书架数的历史快照，`(bid, at)` 唯一；唯一一张**不覆盖**的表，只增不改，用来算新增收藏 |

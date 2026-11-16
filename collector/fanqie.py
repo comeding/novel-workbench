@@ -1,28 +1,40 @@
 # -*- coding: utf-8 -*-
-"""番茄小说 · 新书榜采集器
+"""番茄小说 · 扫榜采集器
 
-数据来源（网页与接口是同一份数据，接口一次给全 100 条）：
-    https://fanqienovel.com/rank/1_1_262          都市脑洞
-    https://fanqienovel.com/rank/1_1_257          玄幻脑洞
-    GET /api/rank/category/list?app_id=2503&rank_list_type=3&offset=0&limit=100
-        &category_id=<262|257>&rank_version=&gender=1&rankMold=1
+两个榜：
 
-两个坑，脚本里都处理了：
+1. **新书榜**（分都市脑洞 / 玄幻脑洞两个分类）
+   网页 https://fanqienovel.com/rank/1_1_262（262 都市脑洞、257 玄幻脑洞）
+   GET /api/rank/category/list?app_id=2503&rank_list_type=3&offset=0&limit=100
+       &category_id=<262|257>&rank_version=&gender=1&rankMold=1
 
-1. **书名/作者是字体混淆的**。接口里给的是私有区字符（U+E3xx），网页靠一个
-   SourceHanSansSC-Normal 的子集字体把它们画成汉字。该字体是固定的
-   （awesome-font/c/dc027189e0ba4cd.woff2），映射表按字形反查后存在
-   fanqie_font.json。字体 hash 变了脚本会警告 —— 那时要重新生成映射。
+2. **新书总榜**（不分分类，男频连载按热度排）
+   网页 https://fanqienovel.com/library/audience1-stat1-count0/page_1?sort=hottes
+   GET /api/author/library/book_list/v0/?page_count=18&page_index=<n>
+       &gender=1&category_id=-1&creation_status=1&word_count=0&book_type=-1&sort=0
 
-2. **少传 gender / rankMold 会静默退回另一个榜**。只给 category_id 的话接口
-   照样返回 200、照样有 100 条，但那是阅读榜的书（两三百万字的老书），跟页面上
-   的 20 万字新书完全对不上，很容易误以为采对了。必须带上 gender=1&rankMold=1。
+坑都写在下面，脚本里逐个处理了：
 
-   rank_version 反而不重要，传空字符串就返回最新一版。
+1. **书名/作者是字体混淆的**（私有区字符 U+E3xx）。网页靠一套
+   SourceHanSansSC-Normal 的子集字体把它们画成汉字。**两个页面用的不是同一套
+   字体**，映射表得分开存：新书榜是 fanqie_font.json，总榜是
+   fanqie_font_lib.json。字体 hash 变了脚本会警告，那时重跑
+   `python dev/make_fanqie_font.py [--lib]` 重建。
+
+2. **新书榜少传 gender / rankMold 会静默退回另一个榜**。只给 category_id 的话
+   接口照样返回 200、照样有 100 条，但那是阅读榜的书（两三百万字的老书），跟
+   页面上的 20 万字新书完全对不上，很容易误以为采对了。必须带
+   gender=1&rankMold=1。rank_version 反而不重要，传空字符串就返回最新一版。
+
+3. **总榜的字数/在读也是混淆的字符串**（"74.1万人在读" 这种），不是数字，
+   要先把字还原再解析中文数量。总榜每页固定 18 条，要翻页才够数。
+
+4. **字体 key 在响应头里**。总榜是纯客户端渲染，页面 HTML 里没有字体链接，
+   `x-tt-zhal` 响应头里的 `f=<hash>` 才是当前字体。
 
 用法：
-    python collector/fanqie.py                 # 采两个分类并入库
-    python collector/fanqie.py 番茄新书榜       # 只采这个榜
+    python collector/fanqie.py                 # 两个榜都采并入库
+    python collector/fanqie.py 番茄新书总榜      # 只采总榜
     python collector/fanqie.py --no-upload     # 只落盘
     python collector/fanqie.py --list          # 打印分类与 cid
 """
@@ -44,6 +56,7 @@ OUT_DIR = os.environ.get("WB_RAW") or os.path.join(ROOT, "data", "raw")
 if not os.path.isabs(OUT_DIR):
     OUT_DIR = os.path.join(ROOT, OUT_DIR)
 FONT_FILE = os.path.join(BASE, "fanqie_font.json")
+LIB_FONT_FILE = os.path.join(BASE, "fanqie_font_lib.json")
 
 API = "https://fanqienovel.com/api/rank/category/list"
 PAGE = "https://fanqienovel.com/rank/1_1_%d"
@@ -51,6 +64,11 @@ APP_ID = 2503
 GENDER = 1                              # 1 = 男频
 RANK_LIST_TYPE = 3                      # 3 = 新书榜
 RANK_MOLD = 1                           # 1 = 新书榜（缺了它接口会退回阅读榜）
+
+LIB_API = "https://fanqienovel.com/api/author/library/book_list/v0/"
+LIB_SIZE = 18                           # 接口每页固定 18 条，传大了也按 18 给
+LIB_LIMIT = 200                         # 新书总榜取前 200 条（前几页 18 条/页，之后 10 条/页）
+LIB_MAX_PAGES = 30                      # 兜底：接口异常时不至于一直翻下去
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
@@ -61,6 +79,8 @@ BOARDS = {
             "玄幻脑洞": 257,
         },
     },
+    # 书库页的「男频 · 连载中 · 全部字数 · 按热度」，不分分类
+    "番茄新书总榜": {"lib": True},
 }
 
 RE_FONT = re.compile(r"awesome-font/c/([0-9a-f]+)\.woff2")
@@ -70,7 +90,7 @@ def log(msg):
     print(msg, flush=True)
 
 
-def _get(url, accept="text/html"):
+def _get(url, accept="text/html", with_headers=False):
     req = urllib.request.Request(url, headers={
         "User-Agent": UA, "Accept": accept,
         "Accept-Encoding": "gzip", "Referer": "https://fanqienovel.com/",
@@ -79,29 +99,51 @@ def _get(url, accept="text/html"):
         raw = r.read()
         if r.headers.get("Content-Encoding") == "gzip":
             raw = gzip.decompress(raw)
-    return raw.decode("utf-8", "replace")
+        hdr = dict(r.headers)
+    body = raw.decode("utf-8", "replace")
+    return (body, hdr) if with_headers else body
 
 
-def load_font():
+def load_font(path):
     """私有区字符 → 汉字。读不到就退化成原样输出，至少不崩。"""
     try:
-        with io.open(FONT_FILE, encoding="utf-8") as f:
+        with io.open(path, encoding="utf-8") as f:
             d = json.load(f)
         return d.get("map") or {}, d.get("font") or ""
     except (OSError, ValueError):
         return {}, ""
 
 
-FONT_MAP, FONT_HASH = load_font()
+FONT_MAP, FONT_HASH = load_font(FONT_FILE)
+LIB_FONT_MAP, LIB_FONT_HASH = load_font(LIB_FONT_FILE)
 
 
-def decode(text):
+def decode(text, mp=None):
+    """还原私有区字符。mp 默认用新书榜那套表；总榜要显式传 LIB_FONT_MAP。"""
     if not text:
         return ""
-    if not FONT_MAP:
+    mp = FONT_MAP if mp is None else mp
+    if not mp:
         return text
-    return "".join(FONT_MAP.get(ch, ch) if 0xE000 <= ord(ch) <= 0xF8FF else ch
+    return "".join(mp.get(ch, ch) if 0xE000 <= ord(ch) <= 0xF8FF else ch
                    for ch in text)
+
+
+RE_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(亿|万)?")
+
+
+def parse_num(text):
+    """「74.1万人在读」→ 741000，「23.3万字」→ 233000，「3521」→ 3521。"""
+    m = RE_NUM.search(text or "")
+    if not m:
+        return 0
+    v = float(m.group(1))
+    unit = m.group(2)
+    if unit == "亿":
+        v *= 100000000
+    elif unit == "万":
+        v *= 10000
+    return int(round(v))
 
 
 def page_font(cid):
@@ -140,6 +182,83 @@ def fetch_category(cid):
         if step < 2:
             time.sleep(3)
     return [], 0
+
+
+def fetch_lib(page_index):
+    """书库（新书总榜）的一页。返回 (books, has_more, font_hash)。"""
+    q = urllib.parse.urlencode({
+        "page_count": LIB_SIZE, "page_index": page_index,
+        "gender": GENDER, "category_id": -1,
+        "creation_status": 1,           # 1 = 连载中（页面上就是 stat1）
+        "word_count": 0,                # 0 = 不限字数
+        "book_type": -1, "sort": 0,     # 0 = 热度（页面 ?sort=hottes）
+    })
+    body, hdr = _get(LIB_API + "?" + q, "application/json", with_headers=True)
+    # 字体 key 只在这个响应头里：x-tt-zhal: k=..;f=<hash>;d1=..
+    m = re.search(r"(?:^|;)f=([0-9a-f]+)", hdr.get("x-tt-zhal") or "")
+    font = m.group(1) if m else ""
+    data = (json.loads(body).get("data") or {})
+    return data.get("book_list") or [], bool(data.get("has_more")), font
+
+
+def fetch_total(limit=LIB_LIMIT):
+    """翻页取总榜，按 bid 去重。前几页 18 条/页，翻深了变成 10 条/页。"""
+    rows, seen, font = [], set(), set()
+    for i in range(LIB_MAX_PAGES):
+        books, has_more, f = fetch_lib(i)
+        if f:
+            font.add(f)
+        if not books:
+            break
+        fresh = 0
+        for b in books:
+            bid = str(b.get("book_id") or "")
+            if not bid or bid in seen:
+                continue
+            seen.add(bid)
+            rows.append(b)
+            fresh += 1
+        log("    第 %-2d 页 +%2d 条，累计 %3d 条" % (i + 1, fresh, len(rows)))
+        if len(rows) >= limit or not has_more or not fresh:
+            break
+        time.sleep(0.3)                 # 别把书库接口打急了
+    if font and LIB_FONT_HASH not in font:
+        log("    ! 混淆字体换了（%s → %s），总榜书名可能还原不全，"
+            "需要重做 fanqie_font_lib.json" % (LIB_FONT_HASH, "/".join(sorted(font))))
+    return rows[:limit]
+
+
+def parse_lib(books):
+    """总榜字段：字数/在读是混淆过的中文数量字符串，得先还原再解析。"""
+    rows = []
+    for i, b in enumerate(books, 1):
+        title = decode(b.get("book_name"), LIB_FONT_MAP)
+        if not title:
+            continue
+        words = parse_num(decode(b.get("word_count"), LIB_FONT_MAP))
+        reads = parse_num(decode(b.get("read_count"), LIB_FONT_MAP))
+        try:
+            ts = int(b.get("last_chapter_time") or 0)
+        except (TypeError, ValueError):
+            ts = 0
+        rows.append({
+            "rank": i,
+            "bid": str(b.get("book_id") or ""),
+            "title": title,
+            "author": decode(b.get("author"), LIB_FONT_MAP),
+            # 书库接口不给分类。留空，入库时不会覆盖新书榜那边带下来的分类
+            "cat2": "",
+            "cat3": "",
+            "label": "连载" if str(b.get("creation_status")) == "1" else "完结",
+            "words_wan": round(words / 10000.0, 1) if words else 0,
+            "total_words": words,
+            "collect_num": reads,       # 番茄没有「加入书架」，这列是在读人数
+            "badge": "",
+            "last_chapter": "",         # 书库接口不给章节名，只给时间，页面显示「—」
+            "update_date": time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "",
+            "intro": decode(b.get("abstract"), LIB_FONT_MAP).replace("\n", " ")[:200],
+        })
+    return [r for r in rows if r["bid"]]
 
 
 def parse(books, cat):
@@ -182,7 +301,7 @@ def collect(board_names=None):
     names = board_names or list(BOARDS.keys())
     result = {
         "platform": "番茄小说",
-        "source": "fanqienovel.com /api/rank/category/list",
+        "source": "fanqienovel.com（榜单 /api/rank/category/list + 书库 /api/author/library/book_list）",
         "collected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "boards": {},
     }
@@ -191,6 +310,33 @@ def collect(board_names=None):
         if not cfg:
             log("[%s] 未配置分类，跳过" % name)
             continue
+
+        # 书库那种不分分类的总榜
+        if cfg.get("lib"):
+            log("[%s]" % name)
+            log("  书库页 · 男频 · 连载中 · 按热度，取前 %d 条" % LIB_LIMIT)
+            try:
+                books = fetch_total()
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                log("  ✗ 请求失败：%s" % e)
+                continue
+            rows = parse_lib(books)
+            if not rows:
+                log("  ✗ 没有数据（书库接口可能改了）")
+                continue
+            column = {"cid": "", "name": "%s" % name,
+                      "push_name": "番茄小说新书总榜", "unit": "在读"}
+            result["boards"][name] = {
+                "column": column,
+                "total": len(rows),
+                "books": rows,
+                "categories": {"全部": {"column": column, "total": len(rows),
+                                        "books": rows}},
+                "full": True,
+            }
+            log("  共 %d 条  %s" % (len(rows), rows[0]["title"][:20]))
+            continue
+
         cats = cfg.get("categories") or {}
         log("[%s]" % name)
         log("  分类 %d 个" % len(cats))

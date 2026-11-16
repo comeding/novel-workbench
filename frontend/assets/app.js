@@ -37,7 +37,17 @@
      表头固定 38；行高不写死，而是把「可用高度 ÷ 当前页条数」摊到每一行，
      这样一屏正好铺满到底，也不会露出半行。
      ABOVE 是「窗口顶 → 表格顶」，分三档：正常 / 矮屏（主视觉压一行）/ 极矮（收起主视觉）。 */
-  const BOARD_KEYS = ['vip', 'new', 'ticket', 'fq'];
+  const BOARD_KEYS = ['vip', 'new', 'ticket', 'fq', 'fqs'];
+
+  /* 每个榜在 tab / 面包屑上的名字。番茄那边两个榜都挂在新书榜下面，
+     页面上分别叫「新书总榜」和「新书榜」 */
+  const TAB_NAMES = {
+    vip: '会员榜', new: '新书榜', ticket: '新书月票榜',
+    fq: '新书榜', fqs: '新书总榜',
+  };
+
+  /* 扫榜下按平台分页，每页放哪些榜 */
+  const PAGE_BOARDS = { qq: ['vip', 'new', 'ticket'], fq: ['fqs', 'fq'] };
   const HEAD_H = 38, BELOW = 68;
   const ABOVE = 285, ABOVE_DENSE = 206, ABOVE_TINY = 133;
   const ROW_BASE = 50, ROW_MIN = 46, ROW_MAX = 64;
@@ -48,9 +58,10 @@
         loading: true,
         err: '',
         collectedAt: '',
-        boards: { vip: null, new: null, ticket: null, fq: null },
+        boards: { vip: null, new: null, ticket: null, fq: null, fqs: null },
         activeTab: 'vip',
-        state: { vip: mkState(), new: mkState(), ticket: mkState(), fq: mkState() },
+        state: { vip: mkState(), new: mkState(), ticket: mkState(), fq: mkState(),
+                 fqs: mkState() },
         drawer: false,
         current: null,
         positions: [],
@@ -114,29 +125,27 @@
       isBoard() { return this.page === 'qq' || this.page === 'fq'; },
       pageName() { return this.page === 'fq' ? '番茄小说' : 'QQ阅读'; },
 
-      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '新书月票榜',
-                          fq: '番茄新书榜' }[this.activeTab] || '会员榜'; },
+      tabName() { return TAB_NAMES[this.activeTab] || '会员榜'; },
+
+      /* 番茄那两页的「在读」列和抽屉文案都按平台走 */
+      isFqBoard() { return this.activeTab === 'fq' || this.activeTab === 'fqs'; },
+      numLabel() {
+        if (this.activeTab === 'ticket') return '月票';
+        return this.isFqBoard ? '在读' : '加入书架';
+      },
 
       cur() { return this.boards[this.activeTab] || { name: '', books: [], cats: {} }; },
       st() { return this.state[this.activeTab]; },
       catList() { return Object.keys(this.cur.cats || {}).filter(c => c !== '全部'); },
+      /* 有「全部」分类的榜才给「全部分类」这个选项（番茄新书榜只有两个分类） */
+      hasAll() { return Object.prototype.hasOwnProperty.call(this.cur.cats || {}, '全部'); },
 
-      /* 榜单卡片顶部的 tab：QQ 页是三个榜，番茄页换成它那两个分类。
-         番茄的分类 tab 用 'c:' 前缀，免得和榜单 key 撞名 */
+      /* 卡片顶部的 tab 就是这一页的榜：QQ 三个，番茄两个（新书总榜 / 新书榜） */
       tabsList() {
-        if (this.page === 'fq') {
-          return this.catList.map(c => ({ key: 'c:' + c, label: c, note: this.catNote(c) }));
-        }
-        return [
-          { key: 'vip', label: '会员榜', note: this.tabNote.vip },
-          { key: 'new', label: '新书榜', note: this.tabNote.new },
-          { key: 'ticket', label: '新书月票榜', note: this.tabNote.ticket },
-        ];
+        return (PAGE_BOARDS[this.page] || PAGE_BOARDS.qq).map(
+          k => ({ key: k, label: TAB_NAMES[k], note: this.tabNote[k] }));
       },
-      tabKey() {
-        if (this.page === 'fq') return 'c:' + (this.st.cat || this.catList[0] || '');
-        return this.activeTab;
-      },
+      tabKey() { return this.activeTab; },
 
       ds() {
         const b = this.cur, s = this.st;
@@ -155,7 +164,7 @@
         const dir = s.dir;
         /* 月票榜那列是月票数、番茄那列是在读人数，都直接按 n 排；
            QQ 的两个榜按详情页的加入书架人数排 */
-        const byNum = this.activeTab === 'ticket' || this.activeTab === 'fq';
+        const byNum = this.activeTab === 'ticket' || this.isFqBoard;
         const hot = byNum ? (b => b.n || 0) : shelfVal;
         out.sort((x, y) => {
           if (s.sort === 'n') return (hot(x) - hot(y)) * dir;
@@ -211,9 +220,10 @@
           const recs = Object.values(b.cats || {}).reduce((s, c) => s + (c.books || []).length, 0)
             || (b.books || []).length;
           const cats = Object.keys(b.cats || {}).filter(c => c !== '全部').length;
-          return `${exact(recs)} 条 · ${cats} 子榜`;
+          return cats ? `${exact(recs)} 条 · ${cats} 子榜` : `${exact(recs)} 条`;
         };
-        return { vip: note('vip'), new: note('new'), ticket: note('ticket'), fq: note('fq') };
+        return { vip: note('vip'), new: note('new'), ticket: note('ticket'),
+                 fq: note('fq'), fqs: note('fqs') };
       },
 
       progPct() {
@@ -364,12 +374,6 @@
     },
 
     methods: {
-      /* 番茄那页 tab 换成了分类，角标只报这一类的条数 */
-      catNote(c) {
-        const b = ((this.cur.cats || {})[c] || {}).books || [];
-        return exact(b.length) + ' 条';
-      },
-
       syncSize() {
         const n = Math.max(10, Math.min(100, this.nFit));
         for (const k of BOARD_KEYS) {
@@ -390,7 +394,8 @@
           this.collectedAt = D.collected_at || '';
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null,
                           ticket: D.boards['新书月票榜'] || null,
-                          fq: D.boards['番茄新书榜'] || null };
+                          fq: D.boards['番茄新书榜'] || null,
+                          fqs: D.boards['番茄新书总榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) { this.activeTab = h; this.page = this.platformOf(h); }
           /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
@@ -466,7 +471,8 @@
       openPlatform(index) {
         if (index === 'fq') {
           this.page = 'fq';
-          this.activeTab = 'fq';
+          /* 从 QQ 过来时 activeTab 还是 vip 之类的，落到番茄的第一个榜（新书总榜） */
+          if (['fq', 'fqs'].indexOf(this.activeTab) < 0) this.activeTab = 'fqs';
         } else {
           this.page = 'qq';
           /* 从番茄页回来时 activeTab 还是 fq，落回 QQ 自己的第一个榜 */
@@ -474,10 +480,13 @@
         }
         this.stopVer();
         this.scrollTop();
+        /* 地址栏也跟着换，否则会出现「地址是 #fq、页面是会员榜」的错位，
+           刷新一下又跳回另一个平台 */
+        try { history.replaceState(null, '', '#' + this.activeTab); } catch (e) {}
       },
 
       /* 某个榜属于哪个页面，hash 直达和 ?open= 都用它定位 */
-      platformOf(key) { return key === 'fq' ? 'fq' : 'qq'; },
+      platformOf(key) { return ['fq', 'fqs'].indexOf(key) >= 0 ? 'fq' : 'qq'; },
 
       /* tab 现在是单向绑定（:model-value="tabKey"），点完得自己把 activeTab 落下去，
          不然计算出来的 tabKey 没变，高亮会立刻弹回原来那个榜 */
@@ -487,20 +496,6 @@
         this.activeTab = name;
         this.scrollTop();
         try { history.replaceState(null, '', '#' + name); } catch (e) {}
-      },
-
-      /* 番茄页的 tab 就是分类（都市脑洞 / 玄幻脑洞） */
-      onCatTab(name) {
-        if (!name) return;
-        this.st.cat = name;
-        this.st.page = 1;
-        this.scrollTop();
-      },
-
-      /* tab 只有一个入口，按前缀分派到「换榜」还是「换分类」 */
-      onTabChange(key) {
-        if (String(key).indexOf('c:') === 0) { this.onCatTab(String(key).slice(2)); return; }
-        this.onTab(key);
       },
 
       scrollTop() {
@@ -526,9 +521,9 @@
       /* ---------- 详情抽屉 ---------- */
       openBook(row) {
         if (!row || !row.bid) return;
-        /* 番茄的书只在榜单接口里有：没有 QQ 那套「加入书架 / 收藏快照」，
-           也不能拆书，所以打个标记，抽屉按平台换文案和按钮 */
-        const isFq = this.activeTab === 'fq';
+        /* 番茄的书只在番茄的接口里有：没有 QQ 那套「加入书架 / 收藏快照」，
+           所以打个标记，抽屉按平台换文案和按钮 */
+        const isFq = this.isFqBoard;
         this.current = Object.assign({}, row, { s24: null, s24h: 0, pf: isFq ? 'fq' : 'qq' });
         this.positions = this.bookPositions(row.bid);
         this.drawer = true;
@@ -546,7 +541,10 @@
       /* 章节号：QQ 给的是数字（1234），番茄给的是「第676章 手雷翻搅」整句，
          两种都要显示成人看得懂的样子 */
       lcText(lc) {
-        const s = (lc === null || lc === undefined) ? '' : String(lc);
+        /* 父组件把空串过成了 0（query 里 `lc or 0`），别让它显示成「第 0 章」；
+           番茄新书总榜的接口本来就不给章节名，这里统一显示占位 */
+        const s = (lc === null || lc === undefined || lc === 0 || lc === '0')
+          ? '' : String(lc);
         if (!s) return '第 — 章';
         return s.indexOf('第') === 0 ? s : '第 ' + s + ' 章';
       },
@@ -1186,7 +1184,7 @@
 
       /* 在哪一页就采哪个平台的榜，番茄页不会顺带把 QQ 也跑一遍 */
       collectBoards() {
-        return this.page === 'fq' ? ['番茄新书榜']
+        return this.page === 'fq' ? ['番茄新书总榜', '番茄新书榜']
                                   : ['会员榜', '新书榜', '新书月票榜'];
       },
 

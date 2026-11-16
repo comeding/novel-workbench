@@ -111,13 +111,13 @@
             <template v-else>
               <el-breadcrumb-item>扫榜</el-breadcrumb-item>
               <el-breadcrumb-item>{{ pageName }}</el-breadcrumb-item>
-              <el-breadcrumb-item v-if="activeTab !== 'fq'">{{ tabName }}</el-breadcrumb-item>
+              <el-breadcrumb-item>{{ tabName }}</el-breadcrumb-item>
             </template>
           </el-breadcrumb>
           <h2>{{ page === 'ver' ? '版本控制' : (page === 'readlist' ? '拆书列表'
                 : (page === 'docs' ? '拆书文件'
                 : (page === 'doc' ? (doc.title || '拆书文件')
-                : (page === 'read' ? (rd.title || '拆书') : (page === 'fq' ? '番茄新书榜' : tabName))))) }}</h2>
+                : (page === 'read' ? (rd.title || '拆书') : tabName)))) }}</h2>
         </div>
         <div class="right" v-if="isBoard">
           <el-tag size="large" effect="plain" round class="chip">
@@ -751,7 +751,7 @@
           <el-card shadow="never" class="board-card">
             <div class="card-hd">
               <!-- QQ阅读 是三个榜切换，番茄只有一个榜、它那两个分类顶上来当 tab -->
-              <el-tabs :model-value="tabKey" class="board-tabs" @tab-change="onTabChange">
+              <el-tabs :model-value="tabKey" class="board-tabs" @tab-change="onTab">
                 <el-tab-pane v-for="t in tabsList" :key="t.key" :name="t.key">
                   <template #label>{{ t.label }}<em class="tab-note">{{ t.note }}</em></template>
                 </el-tab-pane>
@@ -761,9 +761,9 @@
                 <el-input v-model="st.q" class="f-search" placeholder="搜索书名或作者" clearable @input="st.page = 1">
                   <template #prefix><el-icon><search></search></el-icon></template>
                 </el-input>
-                <el-select v-if="page !== 'fq'" v-model="st.cat" class="f-sel" placeholder="全部分类"
+                <el-select v-if="catList.length" v-model="st.cat" class="f-sel" placeholder="全部分类"
                            @change="st.page = 1">
-                  <el-option label="全部分类" value="">
+                  <el-option v-if="hasAll" label="全部分类" value="">
                     <span>全部分类</span><span class="opt-n">{{ (cur.books || []).length }}</span>
                   </el-option>
                   <el-option v-for="c in catList" :key="c" :label="c" :value="c">
@@ -776,7 +776,7 @@
                   <el-option label="5 万字以下" :value="5"></el-option>
                 </el-select>
                 <span class="cnt">{{ total }} / {{ ds.books.length }} 条</span>
-                <el-tag effect="plain" round class="cid">cid {{ ds.cid || '—' }}</el-tag>
+                <el-tag v-if="ds.cid" effect="plain" round class="cid">cid {{ ds.cid }}</el-tag>
               </div>
             </div>
 
@@ -801,7 +801,8 @@
                 <template #default="{ row }"><span class="dim">{{ row.a || '—' }}</span></template>
               </el-table-column>
 
-              <el-table-column label="分类" width="96">
+              <!-- 番茄新书总榜是跨分类的，接口不给分类，这一列不出现 -->
+              <el-table-column v-if="catList.length" label="分类" width="96">
                 <template #default="{ row }">
                   <el-tag v-if="row.c2" effect="plain" size="small" round>{{ row.c2 }}</el-tag>
                   <span v-else class="dim">—</span>
@@ -815,10 +816,10 @@
 
               <el-table-column width="130">
                 <template #header>
-                  <span class="th" @click="sortBy('n')">{{ activeTab === 'ticket' ? '月票' : (activeTab === 'fq' ? '在读' : '加入书架') }}<i class="ar" :class="arrow('n')"></i></span>
+                  <span class="th" @click="sortBy('n')">{{ numLabel }}<i class="ar" :class="arrow('n')"></i></span>
                 </template>
                 <template #default="{ row }">
-                  <span v-if="activeTab === 'fq'" class="mono shelf"
+                  <span v-if="isFqBoard" class="mono shelf"
                         :title="'番茄小说 · ' + $fmt.exact(row.n) + ' 人在读（榜单接口原值）'">
                     {{ $fmt.exact(row.n) }}
                   </span>

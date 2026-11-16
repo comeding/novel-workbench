@@ -138,7 +138,7 @@ def pending_bids(all_books=False):
     cols = {r["name"] for r in con.execute("PRAGMA table_info(books)")}
     # 番茄的书没有 QQ 详情页，抓也抓不到，别让它们占每轮那几百次请求
     only_qq = ("EXISTS (SELECT 1 FROM entries e WHERE e.bid = books.bid"
-               " AND e.board_key <> 'fq')")
+               " AND e.board_key NOT IN ('fq', 'fqs'))")
     if all_books or "shelf" not in cols:
         sql = "SELECT bid FROM books WHERE " + only_qq + " ORDER BY bid"
     else:
