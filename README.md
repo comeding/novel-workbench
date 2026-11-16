@@ -328,11 +328,11 @@ mitmproxy 才看到明文体。**普通使用不需要任何这些操作**，只
 ```
 GET https://fanqienovel.com/api/rank/category/list
     ?app_id=2503&rank_list_type=3&offset=0&limit=100
-    &category_id=262&rank_version=1794799800
+    &category_id=262&rank_version=&gender=1&rankMold=1
 ```
 
 `category_id` 就是页面地址里的最后一段（`262` 都市脑洞、`257` 玄幻脑洞），
-`rank_list_type=3` 是新书榜。两个坑：
+`rank_list_type=3` 是新书榜，`gender=1` 男频。两个坑：
 
 **一、书名和作者是私有区字符。** 接口返回的是 `\ue3ea\ue4f3防御…` 这种，
 网页靠一个 `SourceHanSansSC-Normal` 的子集字体把它们画成汉字（字体地址
@@ -346,9 +346,12 @@ python -m pip install fonttools brotli
 python dev/make_fanqie_font.py
 ```
 
-**二、`rank_version` 只认当前生效的那一版。** 页面上的版本号有时比接口数据
-新一档（榜单 10 分钟一更），拿它请求会返回空。脚本拿不到就往前退一格
-（`-600` 秒）重试，最多退三次。
+**二、少传 `gender` / `rankMold` 会静默退回阅读榜。** 这是最容易踩的一个：
+只给 `category_id` 接口照样返回 200、照样给满 100 条，但拿回来的是阅读榜的书
+（《寿命唯尊》这种两三百万字的老书），跟页面上 20 万字的新书完全对不上，
+不对比一下根本看不出来。必须带 `gender=1&rankMold=1`。
+
+`rank_version` 反倒可有可无，传空字符串就返回最新一版，不用像以前那样猜版本号。
 
 番茄没有「加入书架」这个指标，列表里的 `read_count` 是**在读人数**，所以这一列
 表头写「在读」；这些书也没有 QQ 的详情页，抽屉里给的是「去番茄看」而不是「拆书」。

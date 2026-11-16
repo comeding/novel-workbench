@@ -4,8 +4,8 @@
 数据来源（网页与接口是同一份数据，接口一次给全 100 条）：
     https://fanqienovel.com/rank/1_1_262          都市脑洞
     https://fanqienovel.com/rank/1_1_257          玄幻脑洞
-    GET /api/rank/category/list?app_id=2503&rank_list_type=3
-        &category_id=<262|257>&offset=0&limit=100&rank_version=<页面里的 rankVersion>
+    GET /api/rank/category/list?app_id=2503&rank_list_type=3&offset=0&limit=100
+        &category_id=<262|257>&rank_version=&gender=1&rankMold=1
 
 两个坑，脚本里都处理了：
 
@@ -14,8 +14,11 @@
    （awesome-font/c/dc027189e0ba4cd.woff2），映射表按字形反查后存在
    fanqie_font.json。字体 hash 变了脚本会警告 —— 那时要重新生成映射。
 
-2. **rank_version 只认当前生效的那一版**。页面上的版本号有时比接口数据新
-   一档（榜单 10 分钟一更），拿不到数据就往前退一格再试。
+2. **少传 gender / rankMold 会静默退回另一个榜**。只给 category_id 的话接口
+   照样返回 200、照样有 100 条，但那是阅读榜的书（两三百万字的老书），跟页面上
+   的 20 万字新书完全对不上，很容易误以为采对了。必须带上 gender=1&rankMold=1。
+
+   rank_version 反而不重要，传空字符串就返回最新一版。
 
 用法：
     python collector/fanqie.py                 # 采两个分类并入库
@@ -45,7 +48,9 @@ FONT_FILE = os.path.join(BASE, "fanqie_font.json")
 API = "https://fanqienovel.com/api/rank/category/list"
 PAGE = "https://fanqienovel.com/rank/1_1_%d"
 APP_ID = 2503
-RANK_LIST_TYPE = 3                      # 3 = 新书榜；页面 URL 里的第二个 1 也是这个
+GENDER = 1                              # 1 = 男频
+RANK_LIST_TYPE = 3                      # 3 = 新书榜
+RANK_MOLD = 1                           # 1 = 新书榜（缺了它接口会退回阅读榜）
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
@@ -99,27 +104,20 @@ def decode(text):
                    for ch in text)
 
 
-def page_meta(cid):
-    """从榜单页拿 rankVersion 和字体 hash。页面本身也带前 10 名，这里只要元信息。"""
+def page_font(cid):
+    """从榜单页拿字体 hash，用来判断混淆字体有没有换版本。"""
     html = _get(PAGE % cid)
-    rv = 0
-    i = html.find("window.__INITIAL_STATE__=")
-    if i >= 0:
-        try:
-            st, _ = json.JSONDecoder().raw_decode(html[i + len("window.__INITIAL_STATE__="):])
-            rv = int((st.get("rank") or {}).get("rankVersion") or 0)
-        except (ValueError, TypeError):
-            rv = 0
     m = RE_FONT.search(html)
-    return rv, (m.group(1) if m else "")
+    return m.group(1) if m else ""
 
 
-def fetch_rank(cid, rv):
+def fetch_rank(cid):
     """一个分类的一整页（limit=100 一次给全）。返回 (books, total)。"""
     q = urllib.parse.urlencode({
         "app_id": APP_ID, "rank_list_type": RANK_LIST_TYPE,
         "offset": 0, "limit": 100,
-        "category_id": cid, "rank_version": rv,
+        "category_id": cid, "rank_version": "",
+        "gender": GENDER, "rankMold": RANK_MOLD,
     })
     d = json.loads(_get(API + "?" + q, "application/json"))
     data = d.get("data") or {}
@@ -127,17 +125,20 @@ def fetch_rank(cid, rv):
 
 
 def fetch_category(cid):
-    """rank_version 对不上时接口会返回空，往前退一格（10 分钟）再试。"""
-    rv, font = page_meta(cid)
+    """字体先验一下版本，再取数据；空结果按 3 秒退避重试两次。"""
+    try:
+        font = page_font(cid)
+    except (urllib.error.URLError, OSError):
+        font = ""
     if font and FONT_HASH and font != FONT_HASH:
         log("    ! 混淆字体换了（%s → %s），书名可能还原不全，需要重做 fanqie_font.json"
             % (FONT_HASH, font))
-    if not rv:
-        rv = int(time.time()) // 600 * 600
     for step in range(3):
-        books, total = fetch_rank(cid, rv - step * 600)
+        books, total = fetch_rank(cid)
         if books:
             return books, total
+        if step < 2:
+            time.sleep(3)
     return [], 0
 
 
