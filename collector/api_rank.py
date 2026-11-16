@@ -10,11 +10,11 @@
 catel3name/totalWords/lastChapter/num/free/vipstatus/updateTime/sellWords…）。
 
 每个榜单 cid 对应一个「榜单或分类子榜」，一页即全量（pagestamp=2 返回空）。
-一轮 33 个数据集（会员榜 16 + 新书榜 16 + 月票榜 1）实测 14 秒左右，相比模拟器方案
+一轮 33 个数据集（会员榜 16 + 新书榜 16 + 新书月票榜 1）实测 14 秒左右，相比模拟器方案
 （4~5 分钟 + 环境依赖）快两个数量级。
 
 用法：
-    python collector/api_rank.py                  # 采会员榜 + 新书榜 + 月票榜，采完入库
+    python collector/api_rank.py                  # 采会员榜 + 新书榜 + 新书月票榜，采完入库
     python collector/api_rank.py 会员榜            # 只采一个
     python collector/api_rank.py --push http://127.0.0.1:8765
     python collector/api_rank.py --push https://rank.example.com --token 口令
@@ -90,12 +90,14 @@ DEFAULT_CIDS = {
             "诸天无限": 543424,
         },
     },
-    # 月票榜在 App 里只有男频总榜一个榜，没有分类子榜（cateId 传什么都不换数据）。
-    # 553522 = 男生月票榜，553524 = 女生月票榜，两榜各 200 条。
-    "月票榜": {
+    # 新书月票榜：创世中文网 https://chuangshi.qq.com/rank/549720_1
+    # 榜名「创世新书月票榜」，口径是「本月入V的创世新书在 QQ阅读 的月票量排行」，
+    # 只收一个月内上架的会员新书。列表里的 num 就是这个月的月票数。
+    # 和会员榜/新书榜一样没有分类子榜（cateId 传什么都不换数据），一页 200 条即全量。
+    "新书月票榜": {
         "tag": "boy",
         "categories": {
-            "全部": 553522,
+            "全部": 549720,
         },
     },
 }

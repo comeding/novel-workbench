@@ -23,7 +23,7 @@ from .. import db
 from ..config import Config
 
 # 榜单中文名 -> 前端路由用的 key。新榜单不在这里也没关系，会自动生成 key。
-BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "月票榜": "ticket"}
+BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "新书月票榜": "ticket"}
 
 INTRO_MAX = 400
 

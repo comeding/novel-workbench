@@ -109,7 +109,7 @@
     },
 
     computed: {
-      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '月票榜' }[this.activeTab] || '会员榜'; },
+      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '新书月票榜' }[this.activeTab] || '会员榜'; },
 
       cur() { return this.boards[this.activeTab] || { name: '', books: [], cats: {} }; },
       st() { return this.state[this.activeTab]; },
@@ -130,7 +130,7 @@
           return true;
         });
         const dir = s.dir;
-        /* 月票榜这一列是月票数，按 n 排；其余榜按详情页的加入书架人数排 */
+        /* 新书月票榜这一列是月票数，按 n 排；其余榜按详情页的加入书架人数排 */
         const hot = this.activeTab === 'ticket' ? (b => b.n || 0) : shelfVal;
         out.sort((x, y) => {
           if (s.sort === 'n') return (hot(x) - hot(y)) * dir;
@@ -358,7 +358,7 @@
           const D = await loadDataset();
           this.collectedAt = D.collected_at || '';
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null,
-                          ticket: D.boards['月票榜'] || null };
+                          ticket: D.boards['新书月票榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
           /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
