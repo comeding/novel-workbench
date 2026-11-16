@@ -162,8 +162,15 @@
       rows() {
         const s = this.st, all = this.ds.books || [];
         const q = s.q.trim().toLowerCase();
+        const cap = s.w ? s.w * 10000 : 0;      /* 档位是「万字」，折成整数好跟精确字数比 */
         const out = all.filter(b => {
-          if (s.w && (b.w || 0) > s.w) return false;
+          /* 「2 万字以下」含 2 万字整。w 是四舍五入到 0.1 万的，2.04 万也会写成 2.0，
+             卡边界会多放进来几百字；有精确字数就按它算，没有才退回 w。
+             判定是「大于才剔」，所以正好 20000 字的那本会留下。 */
+          if (cap) {
+            const wx = b.wx || 0;
+            if (wx ? wx > cap : (b.w || 0) > s.w) return false;
+          }
           if (q) return (b.t || '').toLowerCase().includes(q) || (b.a || '').toLowerCase().includes(q);
           return true;
         });
