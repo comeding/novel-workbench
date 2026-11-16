@@ -61,7 +61,8 @@
         vh: window.innerHeight,
         prog: { running: false, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' },
 
-        /* 页面：qq = 榜单，readlist = 拆书列表，read = 拆书阅读，docs = 拆书文件，doc = 某本书的拆书文件，ver = 版本控制 */
+        /* 页面：qq = QQ阅读榜单，fq = 番茄小说榜单，readlist = 拆书列表，read = 拆书阅读，
+           docs = 拆书文件，doc = 某本书的拆书文件，ver = 版本控制 */
         page: 'qq',
 
         /* 拆书列表：read_books 一行一张封面卡，点开进拆书阅读。
@@ -109,12 +110,33 @@
     },
 
     computed: {
+      /* 扫榜下按平台分成两页，共用同一套榜单视图 */
+      isBoard() { return this.page === 'qq' || this.page === 'fq'; },
+      pageName() { return this.page === 'fq' ? '番茄小说' : 'QQ阅读'; },
+
       tabName() { return { vip: '会员榜', new: '新书榜', ticket: '新书月票榜',
                           fq: '番茄新书榜' }[this.activeTab] || '会员榜'; },
 
       cur() { return this.boards[this.activeTab] || { name: '', books: [], cats: {} }; },
       st() { return this.state[this.activeTab]; },
       catList() { return Object.keys(this.cur.cats || {}).filter(c => c !== '全部'); },
+
+      /* 榜单卡片顶部的 tab：QQ 页是三个榜，番茄页换成它那两个分类。
+         番茄的分类 tab 用 'c:' 前缀，免得和榜单 key 撞名 */
+      tabsList() {
+        if (this.page === 'fq') {
+          return this.catList.map(c => ({ key: 'c:' + c, label: c, note: this.catNote(c) }));
+        }
+        return [
+          { key: 'vip', label: '会员榜', note: this.tabNote.vip },
+          { key: 'new', label: '新书榜', note: this.tabNote.new },
+          { key: 'ticket', label: '新书月票榜', note: this.tabNote.ticket },
+        ];
+      },
+      tabKey() {
+        if (this.page === 'fq') return 'c:' + (this.st.cat || this.catList[0] || '');
+        return this.activeTab;
+      },
 
       ds() {
         const b = this.cur, s = this.st;
@@ -342,6 +364,12 @@
     },
 
     methods: {
+      /* 番茄那页 tab 换成了分类，角标只报这一类的条数 */
+      catNote(c) {
+        const b = ((this.cur.cats || {})[c] || {}).books || [];
+        return exact(b.length) + ' 条';
+      },
+
       syncSize() {
         const n = Math.max(10, Math.min(100, this.nFit));
         for (const k of BOARD_KEYS) {
@@ -364,12 +392,13 @@
                           ticket: D.boards['新书月票榜'] || null,
                           fq: D.boards['番茄新书榜'] || null };
           const h = (location.hash || '').replace('#', '');
-          if (this.boards[h]) this.activeTab = h;
+          if (this.boards[h]) { this.activeTab = h; this.page = this.platformOf(h); }
           /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
              这里不再认它，顺手把地址栏里残留的去掉 */
           else if (h === 'ver') this.clearHash();
           /* 空库时服务正在自动采，先把进度接上再撤掉 loading，避免闪一下「没数据」 */
           await this.attachRunning();
+          this.initCat('fq');
         } catch (e) {
           const msg = (e && e.message) || String(e || '未知错误');
           this.err = /fetch|Network|Failed|abort/i.test(msg)
@@ -405,9 +434,23 @@
         for (const k of BOARD_KEYS) {
           const b = this.boards[k]; if (!b) continue;
           const f = (b.books || []).find(x => String(x.bid) === String(bid));
-          if (f) { this.activeTab = k; this.$nextTick(() => this.openBook(f)); return; }
+          if (f) { this.activeTab = k; this.page = this.platformOf(k); this.$nextTick(() => this.openBook(f)); return; }
         }
         setTimeout(() => this.openBookById(bid), 300);
+      },
+
+      /* 番茄没有「全部分类」，接口默认给的是其中一类（都市脑洞）。
+         这里把 st.cat 摆成那一类，tab 才和数据对得上，不然会高亮成字典序第一个。 */
+      initCat(k) {
+        const b = this.boards[k]; if (!b) return;
+        const cats = b.cats || {};
+        if (Object.prototype.hasOwnProperty.call(cats, '全部')) return;
+        const s = this.state[k];
+        if (s.cat && cats[s.cat]) return;
+        const first = (b.books || [])[0] || {};
+        const hit = Object.keys(cats).filter(
+          c => (((cats[c] || {}).books || [])[0] || {}).bid === first.bid)[0];
+        s.cat = hit || Object.keys(cats)[0] || '';
       },
 
       /* ---------- 榜单操作 ---------- */
@@ -416,15 +459,45 @@
         if (index === 'readlist') { this.openReadList(); return; }
         if (index === 'docs') { this.openDocs(); return; }
         if (index === 'read') { this.openRead(); return; }
-        this.page = 'qq';
+        this.openPlatform(index);
+      },
+
+      /* 点侧栏的 QQ阅读 / 番茄小说。两个平台各一页，切过去把 tab 也摆正 */
+      openPlatform(index) {
+        if (index === 'fq') {
+          this.page = 'fq';
+          this.activeTab = 'fq';
+        } else {
+          this.page = 'qq';
+          /* 从番茄页回来时 activeTab 还是 fq，落回 QQ 自己的第一个榜 */
+          if (['vip', 'new', 'ticket'].indexOf(this.activeTab) < 0) this.activeTab = 'vip';
+        }
         this.stopVer();
         this.scrollTop();
       },
 
+      /* 某个榜属于哪个页面，hash 直达和 ?open= 都用它定位 */
+      platformOf(key) { return key === 'fq' ? 'fq' : 'qq'; },
+
       onTab(name) {
         if (!this.boards[name]) { ElMessage.warning('这个榜单还没有数据'); return; }
+        this.page = this.platformOf(name);
         this.scrollTop();
         try { history.replaceState(null, '', '#' + name); } catch (e) {}
+      },
+
+      /* 番茄页的 tab 就是分类（都市脑洞 / 玄幻脑洞） */
+      onCatTab(name) {
+        if (!name) return;
+        this.st.cat = name;
+        this.st.page = 1;
+        this.scrollTop();
+      },
+
+      /* tab 只有一个入口，按前缀分派到「换榜」还是「换分类」 */
+      onTabChange(key) {
+        if (String(key).indexOf('c:') === 0) { this.onCatTab(String(key).slice(2)); return; }
+        this.onTab(key);
       },
 
       scrollTop() {
@@ -517,7 +590,7 @@
           const sets = [b.books || []].concat(Object.values(b.cats || {}).map(c => c.books || []));
           for (const arr of sets) {
             const f = arr.find(x => String(x.bid) === String(bid));
-            if (f) { this.activeTab = k; this.openBook(f); return; }
+            if (f) { this.activeTab = k; this.page = this.platformOf(k); this.openBook(f); return; }
           }
         }
         WBAPI.book(bid).then(d => {
@@ -1106,6 +1179,12 @@
 
       notReady() { ElMessage.info('导出功能还没做（下次加）'); },
 
+      /* 在哪一页就采哪个平台的榜，番茄页不会顺带把 QQ 也跑一遍 */
+      collectBoards() {
+        return this.page === 'fq' ? ['番茄新书榜']
+                                  : ['会员榜', '新书榜', '新书月票榜'];
+      },
+
       async pullData() {
         if (this.pulling) { ElMessage.info('正在采集，等它跑完'); return; }
         if (location.protocol === 'file:') {
@@ -1115,7 +1194,7 @@
         this.prog = { running: true, ok: null, board: '', done: 0, total: 0, elapsed: 0, lines: [], error: '' };
         let r;
         try {
-          r = await WBAPI.collect();
+          r = await WBAPI.collect(this.collectBoards());
         } catch (e) {
           if (e.status === 409) { ElMessage.info('已经在采集了'); this.startPoll(); return; }
           const off = e.status === 403;
@@ -1389,8 +1468,11 @@
       window.addEventListener('resize', this._onResize);
       window.addEventListener('hashchange', () => {
         const h = (location.hash || '').replace('#', '');
-        /* 地址栏只认榜单（#vip / #new），页面本身由左侧菜单决定 */
-        if (this.boards[h] && h !== this.activeTab) { this.page = 'qq'; this.activeTab = h; }
+        /* 地址栏只认榜单（#vip / #new / #fq），落到它所属的那个平台页 */
+        if (this.boards[h] && h !== this.activeTab) {
+          this.activeTab = h;
+          this.page = this.platformOf(h);
+        }
       });
     },
 

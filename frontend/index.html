@@ -38,7 +38,11 @@
           </template>
           <el-menu-item index="qq">
             <el-icon><reading></reading></el-icon>
-            <span>榜单总览</span>
+            <span>QQ阅读</span>
+          </el-menu-item>
+          <el-menu-item index="fq">
+            <el-icon><collection></collection></el-icon>
+            <span>番茄小说</span>
           </el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="read">
@@ -106,16 +110,16 @@
             </template>
             <template v-else>
               <el-breadcrumb-item>扫榜</el-breadcrumb-item>
-              <el-breadcrumb-item>{{ activeTab === 'fq' ? '番茄小说' : 'QQ阅读' }}</el-breadcrumb-item>
-              <el-breadcrumb-item>{{ tabName }}</el-breadcrumb-item>
+              <el-breadcrumb-item>{{ pageName }}</el-breadcrumb-item>
+              <el-breadcrumb-item v-if="activeTab !== 'fq'">{{ tabName }}</el-breadcrumb-item>
             </template>
           </el-breadcrumb>
           <h2>{{ page === 'ver' ? '版本控制' : (page === 'readlist' ? '拆书列表'
                 : (page === 'docs' ? '拆书文件'
                 : (page === 'doc' ? (doc.title || '拆书文件')
-                : (page === 'read' ? (rd.title || '拆书') : tabName)))) }}</h2>
+                : (page === 'read' ? (rd.title || '拆书') : (page === 'fq' ? '番茄新书榜' : tabName))))) }}</h2>
         </div>
-        <div class="right" v-if="page === 'qq'">
+        <div class="right" v-if="isBoard">
           <el-tag size="large" effect="plain" round class="chip">
             {{ collectedAt ? '数据截至' : '尚未采集' }}
             <b v-if="collectedAt">{{ (collectedAt || '').slice(5, 16) }}</b>
@@ -172,7 +176,7 @@
         </div>
       </el-header>
 
-      <el-main class="body" :class="{ dense, tiny }" v-loading="loading && page === 'qq'" element-loading-text="正在读取榜单数据…">
+      <el-main class="body" :class="{ dense, tiny }" v-loading="loading && isBoard" element-loading-text="正在读取榜单数据…">
 
         <!-- ---------- 版本控制 ---------- -->
         <template v-if="page === 'ver'">
@@ -643,7 +647,7 @@
           </section>
         </template>
 
-        <template v-else-if="page === 'qq'">
+        <template v-else-if="isBoard">
 
         <!-- 初始化失败 -->
         <el-result v-if="err" icon="error" title="页面初始化失败" :sub-title="err">
@@ -745,18 +749,10 @@
           <!-- 榜单 -->
           <el-card shadow="never" class="board-card">
             <div class="card-hd">
-              <el-tabs v-model="activeTab" class="board-tabs" @tab-change="onTab">
-                <el-tab-pane name="vip">
-                  <template #label>会员榜<em class="tab-note">{{ tabNote.vip }}</em></template>
-                </el-tab-pane>
-                <el-tab-pane name="new">
-                  <template #label>新书榜<em class="tab-note">{{ tabNote.new }}</em></template>
-                </el-tab-pane>
-                <el-tab-pane name="ticket">
-                  <template #label>新书月票榜<em class="tab-note">{{ tabNote.ticket }}</em></template>
-                </el-tab-pane>
-                <el-tab-pane name="fq">
-                  <template #label>番茄新书榜<em class="tab-note">{{ tabNote.fq }}</em></template>
+              <!-- QQ阅读 是三个榜切换，番茄只有一个榜、它那两个分类顶上来当 tab -->
+              <el-tabs :model-value="tabKey" class="board-tabs" @tab-change="onTabChange">
+                <el-tab-pane v-for="t in tabsList" :key="t.key" :name="t.key">
+                  <template #label>{{ t.label }}<em class="tab-note">{{ t.note }}</em></template>
                 </el-tab-pane>
               </el-tabs>
 
@@ -764,7 +760,8 @@
                 <el-input v-model="st.q" class="f-search" placeholder="搜索书名或作者" clearable @input="st.page = 1">
                   <template #prefix><el-icon><search></search></el-icon></template>
                 </el-input>
-                <el-select v-model="st.cat" class="f-sel" placeholder="全部分类" @change="st.page = 1">
+                <el-select v-if="page !== 'fq'" v-model="st.cat" class="f-sel" placeholder="全部分类"
+                           @change="st.page = 1">
                   <el-option label="全部分类" value="">
                     <span>全部分类</span><span class="opt-n">{{ (cur.books || []).length }}</span>
                   </el-option>
