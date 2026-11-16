@@ -37,7 +37,7 @@
      表头固定 38；行高不写死，而是把「可用高度 ÷ 当前页条数」摊到每一行，
      这样一屏正好铺满到底，也不会露出半行。
      ABOVE 是「窗口顶 → 表格顶」，分三档：正常 / 矮屏（主视觉压一行）/ 极矮（收起主视觉）。 */
-  const BOARD_KEYS = ['vip', 'new', 'ticket'];
+  const BOARD_KEYS = ['vip', 'new', 'ticket', 'fq'];
   const HEAD_H = 38, BELOW = 68;
   const ABOVE = 285, ABOVE_DENSE = 206, ABOVE_TINY = 133;
   const ROW_BASE = 50, ROW_MIN = 46, ROW_MAX = 64;
@@ -48,9 +48,9 @@
         loading: true,
         err: '',
         collectedAt: '',
-        boards: { vip: null, new: null, ticket: null },
+        boards: { vip: null, new: null, ticket: null, fq: null },
         activeTab: 'vip',
-        state: { vip: mkState(), new: mkState(), ticket: mkState() },
+        state: { vip: mkState(), new: mkState(), ticket: mkState(), fq: mkState() },
         drawer: false,
         current: null,
         positions: [],
@@ -109,7 +109,8 @@
     },
 
     computed: {
-      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '新书月票榜' }[this.activeTab] || '会员榜'; },
+      tabName() { return { vip: '会员榜', new: '新书榜', ticket: '新书月票榜',
+                          fq: '番茄新书榜' }[this.activeTab] || '会员榜'; },
 
       cur() { return this.boards[this.activeTab] || { name: '', books: [], cats: {} }; },
       st() { return this.state[this.activeTab]; },
@@ -130,8 +131,10 @@
           return true;
         });
         const dir = s.dir;
-        /* 新书月票榜这一列是月票数，按 n 排；其余榜按详情页的加入书架人数排 */
-        const hot = this.activeTab === 'ticket' ? (b => b.n || 0) : shelfVal;
+        /* 月票榜那列是月票数、番茄那列是在读人数，都直接按 n 排；
+           QQ 的两个榜按详情页的加入书架人数排 */
+        const byNum = this.activeTab === 'ticket' || this.activeTab === 'fq';
+        const hot = byNum ? (b => b.n || 0) : shelfVal;
         out.sort((x, y) => {
           if (s.sort === 'n') return (hot(x) - hot(y)) * dir;
           if (s.sort === 'r' || s.sort === 'w') return ((x[s.sort] || 0) - (y[s.sort] || 0)) * dir;
@@ -188,7 +191,7 @@
           const cats = Object.keys(b.cats || {}).filter(c => c !== '全部').length;
           return `${exact(recs)} 条 · ${cats} 子榜`;
         };
-        return { vip: note('vip'), new: note('new'), ticket: note('ticket') };
+        return { vip: note('vip'), new: note('new'), ticket: note('ticket'), fq: note('fq') };
       },
 
       progPct() {
@@ -358,7 +361,8 @@
           const D = await loadDataset();
           this.collectedAt = D.collected_at || '';
           this.boards = { vip: D.boards['会员榜'] || null, new: D.boards['新书榜'] || null,
-                          ticket: D.boards['新书月票榜'] || null };
+                          ticket: D.boards['新书月票榜'] || null,
+                          fq: D.boards['番茄新书榜'] || null };
           const h = (location.hash || '').replace('#', '');
           if (this.boards[h]) this.activeTab = h;
           /* 首页固定是扫榜。以前进版本控制会往地址栏写 #ver，刷新就被带回去，
@@ -446,9 +450,13 @@
       /* ---------- 详情抽屉 ---------- */
       openBook(row) {
         if (!row || !row.bid) return;
-        this.current = Object.assign({}, row, { s24: null, s24h: 0 });
+        /* 番茄的书只在榜单接口里有：没有 QQ 那套「加入书架 / 收藏快照」，
+           也不能拆书，所以打个标记，抽屉按平台换文案和按钮 */
+        const isFq = this.activeTab === 'fq';
+        this.current = Object.assign({}, row, { s24: null, s24h: 0, pf: isFq ? 'fq' : 'qq' });
         this.positions = this.bookPositions(row.bid);
         this.drawer = true;
+        if (isFq) return;
         const bid = String(row.bid);
         // 「近 24 小时新增收藏」要翻历史快照做差，列表数据集里没有，单独问一次
         WBAPI.book(bid).then(d => {
@@ -457,6 +465,21 @@
           this.current.s24h = d.shelf_24h_hours || 0;
           this.current.s24cur = d.shelf_num || 0;
         }).catch(() => {});
+      },
+
+      /* 章节号：QQ 给的是数字（1234），番茄给的是「第676章 手雷翻搅」整句，
+         两种都要显示成人看得懂的样子 */
+      lcText(lc) {
+        const s = (lc === null || lc === undefined) ? '' : String(lc);
+        if (!s) return '第 — 章';
+        return s.indexOf('第') === 0 ? s : '第 ' + s + ' 章';
+      },
+
+      /* 番茄的书没有拆书入口，点一下去官网看正文 */
+      openFanqie() {
+        const bid = this.current && this.current.bid;
+        if (!bid) return;
+        window.open('https://fanqienovel.com/page/' + bid, '_blank', 'noopener');
       },
 
       /* 新增收藏：正数红、负数绿（跟着国内涨红跌绿的习惯），没基准给个破折号 */

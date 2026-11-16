@@ -243,8 +243,11 @@ def _detail_backfill(push_url):
         return
     try:
         with db.reader() as con:
-            row = con.execute("SELECT COUNT(*) AS n FROM books "
-                              "WHERE shelf_num IS NULL OR shelf_num = 0").fetchone()
+            # 番茄的书没有 QQ 详情页，不算进待补数量，否则每轮都会白跑一趟
+            row = con.execute(
+                "SELECT COUNT(*) AS n FROM books WHERE (shelf_num IS NULL OR shelf_num = 0)"
+                " AND EXISTS (SELECT 1 FROM entries e WHERE e.bid = books.bid"
+                "             AND e.board_key <> 'fq')").fetchone()
         missing = int((row["n"] if row else 0) or 0)
     except Exception as e:                       # noqa: BLE001
         print("  详情补采    查库失败：%s" % e, flush=True)

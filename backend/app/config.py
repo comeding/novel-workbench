@@ -31,10 +31,10 @@ class Config:
     ALLOW_COLLECT = _collect_env in ("1", "true", "yes") if _collect_env else None
 
     # 采集脚本位置（触发采集时用）
-    # 默认走 app_api 版：直接请求 App 的榜单接口，不依赖模拟器与 adb，
-    # 跨平台、8 秒采完 19 个数据集。想回到模拟器方案就设：
-    #   WB_COLLECT_SCRIPT=collector/collect.py
-    COLLECT_SCRIPT = _path("WB_COLLECT_SCRIPT", os.path.join("collector", "api_rank.py"))
+    # 默认走总入口：QQ阅读直连接口 + 番茄小说，不依赖模拟器与 adb。
+    # 只想采一个平台就设 WB_COLLECT_SCRIPT=collector/api_rank.py 或 fanqie.py；
+    # 想回到模拟器方案就设 WB_COLLECT_SCRIPT=collector/collect.py
+    COLLECT_SCRIPT = _path("WB_COLLECT_SCRIPT", os.path.join("collector", "collect_all.py"))
 
     # 数据超过这么久（小时）就在启动时自动补一轮；默认 6
     AUTO_COLLECT_AGE = float(os.environ.get("WB_AUTO_COLLECT_AGE") or 6) * 3600
@@ -66,7 +66,8 @@ class Config:
         模拟器方案（collect.py）依赖 Windows + MuMu + adb；接口方案
         （api_rank.py）只发 HTTP 请求，任何系统都能跑。
         """
-        return os.path.basename(cls.COLLECT_SCRIPT) in ("api_rank.py", "h5_rank.py")
+        return os.path.basename(cls.COLLECT_SCRIPT) in (
+            "api_rank.py", "h5_rank.py", "fanqie.py", "collect_all.py")
 
     @classmethod
     def collect_enabled(cls):

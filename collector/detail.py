@@ -136,10 +136,14 @@ def pending_bids(all_books=False):
     con = sqlite3.connect("file:%s?mode=ro" % DB_PATH.replace("\\", "/"), uri=True)
     con.row_factory = sqlite3.Row
     cols = {r["name"] for r in con.execute("PRAGMA table_info(books)")}
+    # 番茄的书没有 QQ 详情页，抓也抓不到，别让它们占每轮那几百次请求
+    only_qq = ("EXISTS (SELECT 1 FROM entries e WHERE e.bid = books.bid"
+               " AND e.board_key <> 'fq')")
     if all_books or "shelf" not in cols:
-        sql = "SELECT bid FROM books ORDER BY bid"
+        sql = "SELECT bid FROM books WHERE " + only_qq + " ORDER BY bid"
     else:
-        sql = "SELECT bid FROM books WHERE shelf IS NULL OR shelf = '' ORDER BY bid"
+        sql = ("SELECT bid FROM books WHERE (shelf IS NULL OR shelf = '')"
+               " AND " + only_qq + " ORDER BY bid")
     try:
         return [str(r["bid"]) for r in con.execute(sql)]
     finally:

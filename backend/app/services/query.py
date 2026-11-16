@@ -76,8 +76,14 @@ def dataset():
             cids = {r["name"]: r["cid"] for r in con.execute(
                 "SELECT name, cid FROM categories WHERE board_key = ?", (key,))}
 
-            # 「全部」既是分类也是总榜，两处都要，保持和旧 data.js 一致
-            total = cats.get("全部") or (cats[sorted(cats)[0]] if cats else [])
+            # 「全部」既是分类也是总榜，两处都要，保持和旧 data.js 一致。
+            # 番茄这类没有「全部」的榜，按采进来的顺序取第一个分类当默认展示。
+            first = None
+            for r in con.execute("SELECT name FROM categories WHERE board_key = ?"
+                                 " ORDER BY rowid LIMIT 1", (key,)):
+                first = r["name"]
+            total = (cats.get("全部") or (cats.get(first) if first in cats else None)
+                     or (cats[sorted(cats)[0]] if cats else []))
             out["boards"][b["name"]] = {
                 "name": b["name"],
                 "cid": b["cid"] or "",
@@ -98,8 +104,14 @@ def board_list():
         for b in con.execute("SELECT * FROM boards ORDER BY key"):
             cats = con.execute(
                 "SELECT count(*) FROM categories WHERE board_key = ?", (b["key"],)).fetchone()[0]
+            # 有「全部」的榜只数总榜那 200 条；番茄没有「全部」，按总条数算，
+            # 否则这里永远是 0
+            has_all = con.execute(
+                "SELECT 1 FROM categories WHERE board_key = ? AND name = '全部'",
+                (b["key"],)).fetchone()
             books = con.execute(
-                "SELECT count(*) FROM entries WHERE board_key = ? AND cat = '全部'",
+                "SELECT count(*) FROM entries WHERE board_key = ?"
+                + (" AND cat = '全部'" if has_all else ""),
                 (b["key"],)).fetchone()[0]
             out.append({
                 "key": b["key"], "name": b["name"], "cid": b["cid"] or "",

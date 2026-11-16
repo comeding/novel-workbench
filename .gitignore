@@ -24,3 +24,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 番茄字体映射重建用的字体缓存（17MB，需要时脚本自己下）
+dev/.cache/

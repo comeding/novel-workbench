@@ -23,7 +23,8 @@ from .. import db
 from ..config import Config
 
 # 榜单中文名 -> 前端路由用的 key。新榜单不在这里也没关系，会自动生成 key。
-BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "新书月票榜": "ticket"}
+BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "新书月票榜": "ticket",
+              "番茄新书榜": "fq"}
 
 INTRO_MAX = 400
 
@@ -166,7 +167,9 @@ def ingest(payload):
                         _int(b.get("collect_num")),
                         _txt(b.get("badge")),
                         _txt(b.get("label")),
-                        _int(b.get("last_chapter")),
+                        # 章节号 QQ 给的是数字，番茄给的是「第676章 手雷翻搅」整句，
+                        # 一律按文本存，展示层自己判断要不要补「第…章」
+                        _txt(b.get("last_chapter")),
                         _txt(b.get("update_date")),
                     ))
 
