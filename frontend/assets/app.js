@@ -18,6 +18,12 @@
     return (Math.floor(n / 1000) / 10).toFixed(1) + '万';
   };
   const shelfVal = b => (b && b.shn) || 0;            // 排序 / 比例条用的整数
+  /* 带符号的增量：+1,234 / -567 / 0 */
+  const signed = n => {
+    const v = Number(n) || 0;
+    if (!v) return '0';
+    return (v > 0 ? '+' : '-') + exact(Math.abs(v));
+  };
   /* 只认详情页抓来的加书架数。以前没抓到时拿榜单热度顶上，
      同一个「加入书架」列里混着两种口径，看到 6288 会以为收藏真有一万。 */
   const shelfOf = b => (b && b.sh) || '—';
@@ -167,6 +173,13 @@
         const byNum = this.activeTab === 'ticket' || this.isFqBoard;
         const hot = byNum ? (b => b.n || 0) : shelfVal;
         out.sort((x, y) => {
+          if (s.sort === 'dn') {
+            /* 还没攒够基准的书排最后（升序降序都在最后），别让一堆「—」占住前排 */
+            const a = x.dn, b = y.dn;
+            if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
+            if (b === null || b === undefined) return -1;
+            return (a - b) * dir;
+          }
           if (s.sort === 'n') return (hot(x) - hot(y)) * dir;
           if (s.sort === 'r' || s.sort === 'w') return ((x[s.sort] || 0) - (y[s.sort] || 0)) * dir;
           return String(x[s.sort] || '').localeCompare(String(y[s.sort] || '')) * dir;
@@ -508,7 +521,8 @@
       sortBy(f) {
         const s = this.st;
         if (s.sort === f) s.dir *= -1;
-        else { s.sort = f; s.dir = (f === 'd' || f === 'n') ? -1 : 1; }
+        /* 更新日期 / 在读数 / 日增，第一次点都是从大到小，符合「谁最热」的直觉 */
+        else { s.sort = f; s.dir = (f === 'd' || f === 'n' || f === 'dn') ? -1 : 1; }
         s.page = 1;
       },
 
@@ -524,7 +538,12 @@
         /* 番茄的书只在番茄的接口里有：没有 QQ 那套「加入书架 / 收藏快照」，
            所以打个标记，抽屉按平台换文案和按钮 */
         const isFq = this.isFqBoard;
-        this.current = Object.assign({}, row, { s24: null, s24h: 0, pf: isFq ? 'fq' : 'qq' });
+        this.current = Object.assign({}, row, {
+          s24: null, s24h: 0, pf: isFq ? 'fq' : 'qq',
+          /* 番茄的在读日增，数据集里已经算好了（dn/dh/dx），不用再问一次接口 */
+          rd: (row.dn === undefined ? null : row.dn), rdh: row.dh || 0,
+          rdcur: row.n || 0, rdx: row.dx === undefined ? 1 : row.dx,
+        });
         this.positions = this.bookPositions(row.bid);
         this.drawer = true;
         if (isFq) return;
@@ -536,6 +555,12 @@
           this.current.s24h = d.shelf_24h_hours || 0;
           this.current.s24cur = d.shelf_num || 0;
         }).catch(() => {});
+      },
+
+      /* ---------- 增量一格：QQ 是「新增收藏」，番茄是「新增在读」 ---------- */
+      dVal() {
+        const c = this.current || {};
+        return c.pf === 'fq' ? c.rd : c.s24;
       },
 
       /* 章节号：QQ 给的是数字（1234），番茄给的是「第676章 手雷翻搅」整句，
@@ -556,33 +581,50 @@
         window.open('https://fanqienovel.com/page/' + bid, '_blank', 'noopener');
       },
 
-      /* 新增收藏：正数红、负数绿（跟着国内涨红跌绿的习惯），没基准给个破折号 */
-      s24Text() {
-        const c = this.current || {};
-        if (c.s24 === null || c.s24 === undefined) return '—';
-        return (c.s24 > 0 ? '+' : '') + c.s24;
+      /* 增量：正数红、负数绿（跟着国内涨红跌绿的习惯），没基准给个破折号 */
+      dText() {
+        const v = this.dVal();
+        if (v === null || v === undefined) return '—';
+        return signed(v);
       },
-      s24Cls() {
-        const c = this.current || {};
-        if (c.s24 === null || c.s24 === undefined || c.s24 === 0) return '';
-        return c.s24 > 0 ? 'up' : 'down';
+      dCls() {
+        const v = this.dVal();
+        if (v === null || v === undefined || v === 0) return '';
+        return v > 0 ? 'up' : 'down';
       },
-      s24Sub() {
+      dSub() {
         const c = this.current || {};
-        if (c.s24 === null || c.s24 === undefined) return '需一天基线';
-        const h = Math.round(c.s24h || 0);
+        if (this.dVal() === null || this.dVal() === undefined) return '需一天基线';
+        const h = Math.round((c.pf === 'fq' ? c.rdh : c.s24h) || 0);
         return h >= 36 ? '近 ' + h + ' 小时' : '近 24 小时';
       },
       /* 说清楚这个差是拿哪两个时点算的，免得把 3 天的增量当成 24 小时看 */
-      s24Tip() {
+      dTip() {
         const c = this.current || {};
-        if (c.s24 === null || c.s24 === undefined) {
+        const v = this.dVal();
+        if (c.pf === 'fq') {
+          if (v === null || v === undefined) {
+            return '需要至少一天前的在读快照。每次采集都会记一条，明天再采一次就能看到日增';
+          }
+          const h = Math.round(c.rdh || 0);
+          return '对比 ' + h + ' 小时前的 ' + exact((c.rdcur || 0) - v) + ' 人在读（当前 '
+            + exact(c.rdcur) + ' 人）。'
+            + (c.rdx ? '两端都是个位精确值。' : '有一端是「74.1万」折出来的近似值，误差约 ±1000。');
+        }
+        if (v === null || v === undefined) {
           return '需要至少一天前的书架数快照；服务端每 24 小时自动记一次，也可以手动跑 collector/shelf_snapshot.py';
         }
-        const base = (c.s24cur || 0) - c.s24;
+        const base = (c.s24cur || 0) - v;
         const h = Math.round(c.s24h || 0);
         return '对比 ' + h + ' 小时前的 ' + base + ' 人（当前 ' + c.s24cur + ' 人）。'
           + '书架数超过 1 万后平台只显示到 0.1 万，误差约 ±1000，新书榜在 1 万以下才是精确值。';
+      },
+      /* 列表里日增那一格的气泡：说清对比的是哪个时点的哪个数 */
+      deltaTip(row) {
+        const h = Math.round(row.dh || 0);
+        const cur = row.n || 0;
+        return '对比 ' + h + ' 小时前的 ' + exact(cur - row.dn) + ' 人在读（当前 ' + exact(cur) + ' 人）'
+          + (row.dx ? '；两端都是个位精确值' : '；有一端是「74.1万」折出来的近似值，误差约 ±1000');
       },
 
       openBookById(bid) {
@@ -595,11 +637,18 @@
           }
         }
         WBAPI.book(bid).then(d => {
+          /* 不在任何榜上的书也走这里：有在读人数就是番茄的书，抽屉文案跟着换 */
+          const fq = (d.reads || 0) > 0;
           this.current = { bid: d.bid, t: d.title, a: d.author, c2: d.cat2, c3: d.cat3, in: d.intro,
-                           r: '—', n: 0, sh: d.shelf || '', shn: d.shelf_num || 0, w: '—', wx: 0,
-                           lc: '—', lb: '', d: '',
+                           r: '—', n: d.reads || 0, sh: d.shelf || '', shn: d.shelf_num || 0,
+                           w: '—', wx: 0, lc: '—', lb: '', d: '',
+                           pf: fq ? 'fq' : 'qq',
                            s24: d.shelf_24h === undefined ? null : d.shelf_24h,
-                           s24h: d.shelf_24h_hours || 0 };
+                           s24h: d.shelf_24h_hours || 0,
+                           rd: d.reads_24h === undefined ? null : d.reads_24h,
+                           rdh: d.reads_24h_hours || 0,
+                           rdcur: d.reads || 0,
+                           rdx: d.reads_24h_exact === undefined ? 1 : d.reads_24h_exact };
           this.positions = this.bookPositions(bid);
           this.drawer = true;
         }).catch(() => ElMessage.error('这本书在库里查不到'));
@@ -1487,7 +1536,7 @@
   });
 
   /* 模板里用的格式化函数 */
-  app.config.globalProperties.$fmt = { exact, shelf: shelfOf, wan };
+  app.config.globalProperties.$fmt = { exact, shelf: shelfOf, wan, signed };
 
   app.use(ElementPlus, { locale: ElementPlusLocaleZhCn });
 

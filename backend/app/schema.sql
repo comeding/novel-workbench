@@ -99,6 +99,24 @@ CREATE TABLE IF NOT EXISTS shelf_history (
 
 CREATE INDEX IF NOT EXISTS ix_shelf_hist ON shelf_history (bid, at);
 
+-- 「在读人数」的历史快照，用来算番茄的「每日新增在读」。
+--
+-- 番茄榜单接口直接给在读人数（不像 QQ 要靠详情页的加入书架数），
+-- 但接口本身只给当前值，没有增量字段，所以还是要自己攒两份相减。
+-- 每次采集都往这里落一条（同一秒重复上报会覆盖同一行）。
+--
+-- exact 是这个值的精度：1 = 个位精确（新书榜接口 / 详情页 readCount），
+-- 0 = 由「74.1万人在读」折出来的近似值（误差 ±1000，日增小于一两千时不足信）。
+CREATE TABLE IF NOT EXISTS reads_hist (
+    bid    TEXT NOT NULL,
+    at     TEXT NOT NULL,                   -- 采集时间 YYYY-MM-DD HH:MM:SS
+    reads  INTEGER NOT NULL,                -- 当时的在读人数
+    exact  INTEGER DEFAULT 1,
+    PRIMARY KEY (bid, at)
+);
+
+CREATE INDEX IF NOT EXISTS ix_reads_hist ON reads_hist (bid, at);
+
 -- ---------- 拆书：目录与正文 ----------
 --
 -- 目录来自 book.qq.com/book-chapter/{bid}，一次给全书（一万多章也能一次拿完）。

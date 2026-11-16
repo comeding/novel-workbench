@@ -32,6 +32,19 @@
 4. **字体 key 在响应头里**。总榜是纯客户端渲染，页面 HTML 里没有字体链接，
    `x-tt-zhal` 响应头里的 `f=<hash>` 才是当前字体。
 
+5. **总榜的在读数是近似值，而且没有更精确的来源**。书库接口给「74.1万人在读」，
+   折成整数只剩万级精度（±500）。试过从详情页 `/page/{bid}` 的 SSR 里抠
+   `"readCount":740518`，但那个数走 CDN 缓存，同一本书连着请求会在新旧两版之间
+   来回跳（实测 734770 / 740518 交替，差 5700），比接口的舍入还不可靠；
+   榜单接口自己反而刷得快（7 分钟内 74.1万 → 73.5万）。
+
+   所以日增统一用接口值（`reads_exact=0`，误差 ±500/次，跨天相减最大 ±1000）。
+   新书榜接口给的是个位精确的 read_count（`reads_exact=1`），日增准到个位。
+
+用「每日新增在读」的方式：后端 ingest 每次都会把 (bid, 采集时间, 在读) 落进
+reads_hist 表，查询时取 18~96 小时前最近的一条做差。所以要**每天至少采一次**，
+而且第一次采完当天是算不出增量的（没有基准快照）。
+
 用法：
     python collector/fanqie.py                 # 两个榜都采并入库
     python collector/fanqie.py 番茄新书总榜      # 只采总榜
@@ -229,21 +242,29 @@ def fetch_total(limit=LIB_LIMIT):
 
 
 def parse_lib(books):
-    """总榜字段：字数/在读是混淆过的中文数量字符串，得先还原再解析。"""
+    """总榜字段：字数/在读是混淆过的中文数量字符串，得先还原再解析。
+
+    在读数只有「74.1万」这种精度（±500），没有更准的来源：详情页 /page/{bid}
+    的 SSR 里虽然有个位精确的 readCount，但它走 CDN 缓存，同一本书连着请求会在
+    新旧两版之间来回跳（实测 734770 / 740518 交替，差 5700），比接口的舍入还不可靠；
+    榜单接口自己反而刷得快（7 分钟内 74.1万 → 73.5万）。日增要跨天相减，两次必须
+    同口径，所以统一用接口值，`reads_exact` 标记为 0，前端会提示这是万级近似。
+    """
     rows = []
     for i, b in enumerate(books, 1):
         title = decode(b.get("book_name"), LIB_FONT_MAP)
         if not title:
             continue
-        words = parse_num(decode(b.get("word_count"), LIB_FONT_MAP))
+        bid = str(b.get("book_id") or "")
         reads = parse_num(decode(b.get("read_count"), LIB_FONT_MAP))
+        words = parse_num(decode(b.get("word_count"), LIB_FONT_MAP))
         try:
             ts = int(b.get("last_chapter_time") or 0)
         except (TypeError, ValueError):
             ts = 0
         rows.append({
             "rank": i,
-            "bid": str(b.get("book_id") or ""),
+            "bid": bid,
             "title": title,
             "author": decode(b.get("author"), LIB_FONT_MAP),
             # 书库接口不给分类。留空，入库时不会覆盖新书榜那边带下来的分类
@@ -253,6 +274,8 @@ def parse_lib(books):
             "words_wan": round(words / 10000.0, 1) if words else 0,
             "total_words": words,
             "collect_num": reads,       # 番茄没有「加入书架」，这列是在读人数
+            # 0 = 由「74.1万人在读」折出来的近似值（±500），日增只能看千位以上
+            "reads_exact": 0,
             "badge": "",
             "last_chapter": "",         # 书库接口不给章节名，只给时间，页面显示「—」
             "update_date": time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "",
@@ -288,6 +311,7 @@ def parse(books, cat):
             "words_wan": round(words / 10000.0, 1) if words else 0,
             "total_words": words,
             "collect_num": reads,          # 番茄没有「加入书架」，这列是在读人数
+            "reads_exact": 1,              # 榜单接口给的就是精确整数，不是「x.x万」
             "badge": "",
             "last_chapter": decode(b.get("lastChapterTitle")),
             "update_date": time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "",

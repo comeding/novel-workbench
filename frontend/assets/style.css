@@ -277,6 +277,10 @@ body {
 
 .dim { color: #8695b5; }
 .mono { font-variant-numeric: tabular-nums; color: #47557a; }
+/* 番茄日增列：涨红跌绿，和抽屉里的「新增收藏」同一套配色 */
+.mono.delta { font-weight: 600; }
+.mono.delta.up { color: #e04b52; }
+.mono.delta.down { color: #12a15c; }
 .shelf { display: inline-flex; align-items: center; gap: 6px; }
 .nbar { height: 3px; border-radius: 2px; background: linear-gradient(90deg, #9cb8ff, #2f6bff); flex: none; }
 

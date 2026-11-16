@@ -124,6 +124,9 @@ def ingest(payload):
             for cname, cinfo in cats.items():
                 cinfo = cinfo or {}
                 ccol = cinfo.get("column") or col
+                # 番茄的「在读人数」榜才有快照价值：QQ 的 collect_num 是榜单热度，
+                # 拿它做差不代表任何人数的变化
+                is_reads = _txt(ccol.get("unit")).strip() == "在读"
                 cat_total += 1
                 con.execute(
                     "INSERT INTO categories (board_key, name, cid, updated_at) VALUES (?, ?, ?, ?)"
@@ -133,6 +136,7 @@ def ingest(payload):
                 )
 
                 rows = []
+                snaps = []
                 for i, b in enumerate(cinfo.get("books") or [], 1):
                     bid = _txt(b.get("bid")).strip()
                     if not bid:
@@ -141,6 +145,7 @@ def ingest(payload):
                     w = _float(b.get("words_wan"))
                     if not w and wx:
                         w = round(wx / 10000.0, 1)
+                    n = _int(b.get("collect_num"))
                     con.execute(
                         "INSERT INTO books (bid, title, author, cat2, cat3, intro, updated_at)"
                         " VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -170,7 +175,7 @@ def ingest(payload):
                         _int(b.get("rank")) or i,
                         w,
                         wx,
-                        _int(b.get("collect_num")),
+                        n,
                         _txt(b.get("badge")),
                         _txt(b.get("label")),
                         # 章节号 QQ 给的是数字，番茄给的是「第676章 手雷翻搅」整句，
@@ -178,6 +183,9 @@ def ingest(payload):
                         _txt(b.get("last_chapter")),
                         _txt(b.get("update_date")),
                     ))
+                    # 在读快照：日增就是拿它和接近 24 小时前的那条做差
+                    if is_reads and n > 0:
+                        snaps.append((bid, collected_at, n, _int(b.get("reads_exact"), 1)))
 
                 # 这个分类整体换新，避免上次多出来的书残留
                 con.execute("DELETE FROM entries WHERE board_key = ? AND cat = ?", (key, cname))
@@ -189,8 +197,26 @@ def ingest(payload):
                 )
                 entry_total += len(rows)
 
+                # 同一本书在多个分类里会重复出现，ON CONFLICT 收口成一行；
+                # 两个榜都给这本书时（新书榜精确 / 总榜万级近似），留精确的那条
+                if snaps:
+                    con.executemany(
+                        "INSERT INTO reads_hist (bid, at, reads, exact) VALUES (?, ?, ?, ?)"
+                        " ON CONFLICT(bid, at) DO UPDATE SET"
+                        " reads = CASE WHEN excluded.exact > reads_hist.exact"
+                        "              THEN excluded.reads ELSE reads_hist.reads END,"
+                        " exact = CASE WHEN excluded.exact > reads_hist.exact"
+                        "              THEN excluded.exact ELSE reads_hist.exact END",
+                        snaps,
+                    )
+
         # 只在榜书目留在 books 里，避免长期累积无用条目
         con.execute("DELETE FROM books WHERE bid NOT IN (SELECT bid FROM entries)")
+
+        # 在读快照只留 120 天：日增最多回看 4 天，再老的没有查询会用到
+        con.execute("DELETE FROM reads_hist WHERE at < ?", (
+            time.strftime("%Y-%m-%d %H:%M:%S",
+                          time.localtime(time.time() - 120 * 86400)),))
 
         # 同一份数据重复导入时不再刷一条日志
         seen = con.execute(

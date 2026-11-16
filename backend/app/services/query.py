@@ -23,7 +23,9 @@ FROM_BOOKS = " FROM entries e JOIN books b ON b.bid = e.bid"
 _DS = {"rev": None, "data": None}
 
 
-def _slim(row, intro_max=150):
+def _slim(row, snap=None, now=None, intro_max=150):
+    now = now or time.time()
+    dn, dh, dx = _reads_delta(row["n"] or 0, snap, now)
     return {
         "r": row["r"] or 0,
         "bid": str(row["bid"]),
@@ -35,6 +37,9 @@ def _slim(row, intro_max=150):
         "w": round(row["w"] or 0, 1),
         "wx": row["wx"] or 0,          # 精确字数（0 表示老数据没有）
         "n": row["n"] or 0,            # 榜单热度（App 列表接口的 num）
+        "dn": dn,                      # 近 24 小时新增在读，None = 还没攒够基准快照
+        "dh": dh,                      # 上面那个差实际跨了多少小时
+        "dx": dx,                      # 1 = 两端都是精确值，0 = 有一端是万级近似
         "sh": row["sh"] or "",         # 加入书架人数，App 原样显示：14.3万
         "shn": row["shn"] or 0,        # 上者折成的整数，用于排序
         "fans": row["fans"] or "",
@@ -50,6 +55,41 @@ def _stamp(con):
     return (row["v"] if row else "") or ""
 
 
+def _reads_snaps(con, now):
+    """一次取出所有书「约 24 小时前」的在读快照，键是 bid。
+
+    口径和 QQ 的加入书架增量一致：取「18 小时前及更早、96 小时以内」里最新的一条。
+
+    - 正常每天采一次，跨度就在 24 小时上下
+    - 漏采一天，跨度会变成 36 / 48 小时，那就如实把小时数带出去
+    - 超过 4 天的历史不认，再旧就和「近 24 小时」没关系了
+
+    顺序扫描之后同 bid 覆盖同 bid，留下的自然是最新那条，不用窗口函数。
+    """
+    hi = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now - 18 * 3600))
+    lo = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now - 96 * 3600))
+    out = {}
+    for r in con.execute(
+            "SELECT bid, at, reads, exact FROM reads_hist"
+            " WHERE at <= ? AND at >= ? ORDER BY at", (hi, lo)):
+        out[str(r["bid"])] = r
+    return out
+
+
+def _reads_delta(cur, snap, now):
+    """当前在读 - 约 24 小时前的快照。返回 (delta, hours, exact)。
+
+    没有基准（第一天）返回 (None, 0, 1)，前端显示「—」而不是假的 0。
+    """
+    if snap is None or not cur:
+        return None, 0.0, 1
+    try:
+        base = time.mktime(time.strptime(snap["at"], "%Y-%m-%d %H:%M:%S"))
+    except (TypeError, ValueError, OverflowError):
+        return None, 0.0, 1
+    return cur - (snap["reads"] or 0), round((now - base) / 3600, 1), snap["exact"]
+
+
 def dataset():
     """整包数据，结构与旧版 data.js 一致，前端主页面用它。"""
     rev = db.revision()
@@ -59,6 +99,8 @@ def dataset():
     with db.reader() as con:
         boards = [dict(r) for r in con.execute("SELECT * FROM boards ORDER BY key")]
         out = {"collected_at": _stamp(con), "platform": "", "boards": {}}
+        now = time.time()
+        snaps = _reads_snaps(con, now)
 
         prow = con.execute("SELECT v FROM meta WHERE k = 'platform'").fetchone()
         out["platform"] = (prow["v"] if prow else "") or ""
@@ -69,7 +111,8 @@ def dataset():
             for row in con.execute(
                     "SELECT" + COLS + FROM_BOOKS +
                     " WHERE e.board_key = ? ORDER BY e.cat, e.rank", (key,)):
-                cats.setdefault(row["cat"], []).append(_slim(row))
+                cats.setdefault(row["cat"], []).append(
+                    _slim(row, snaps.get(str(row["bid"])), now))
             if not cats:
                 continue
 
@@ -195,6 +238,20 @@ def book_detail(bid):
             " WHERE e.bid = ? AND e.cat = '全部' ORDER BY e.board_key", (bid,))]
         now = time.time()
         delta, base_at, hours = _shelf_delta(con, bid, b["shelf_num"] or 0, now)
+        # 番茄的在读数来自 entries（同一本书可能在总榜和新书榜各有一条，取大的）
+        reads = con.execute(
+            "SELECT MAX(collect_num) AS n FROM entries WHERE bid = ?", (bid,)).fetchone()
+        reads = (reads["n"] if reads else 0) or 0
+        rdelta, rhours, rexact = (None, 0.0, 1)
+        if reads:
+            snap = con.execute(
+                "SELECT bid, at, reads, exact FROM reads_hist"
+                " WHERE bid = ? AND at <= ? AND at >= ? ORDER BY at DESC LIMIT 1",
+                (bid,
+                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now - 18 * 3600)),
+                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now - 96 * 3600))),
+            ).fetchone()
+            rdelta, rhours, rexact = _reads_delta(reads, snap, now)
         return {
             "bid": b["bid"], "title": b["title"], "author": b["author"],
             "cat2": b["cat2"], "cat3": b["cat3"], "intro": b["intro"],
@@ -202,6 +259,9 @@ def book_detail(bid):
             "fans": b["fans"] or "", "score": b["score"], "ratings": b["ratings"] or 0,
             # 近 24 小时新增收藏：delta 为 None 表示还没攒够基准快照
             "shelf_24h": delta, "shelf_24h_base": base_at, "shelf_24h_hours": hours,
+            # 番茄：当前在读人数 + 近 24 小时新增在读
+            "reads": reads, "reads_24h": rdelta, "reads_24h_hours": rhours,
+            "reads_24h_exact": rexact,
             "detail_at": b["detail_at"] or "",
             "collected_at": _stamp(con), "positions": pos,
         }
