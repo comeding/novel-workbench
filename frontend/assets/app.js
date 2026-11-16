@@ -479,9 +479,12 @@
       /* 某个榜属于哪个页面，hash 直达和 ?open= 都用它定位 */
       platformOf(key) { return key === 'fq' ? 'fq' : 'qq'; },
 
+      /* tab 现在是单向绑定（:model-value="tabKey"），点完得自己把 activeTab 落下去，
+         不然计算出来的 tabKey 没变，高亮会立刻弹回原来那个榜 */
       onTab(name) {
         if (!this.boards[name]) { ElMessage.warning('这个榜单还没有数据'); return; }
         this.page = this.platformOf(name);
+        this.activeTab = name;
         this.scrollTop();
         try { history.replaceState(null, '', '#' + name); } catch (e) {}
       },
