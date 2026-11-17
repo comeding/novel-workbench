@@ -26,7 +26,7 @@ from ..config import Config
 BOARD_KEYS = {"会员榜": "vip", "新书榜": "new", "新书月票榜": "ticket",
               "番茄新书榜": "fq", "番茄新书总榜": "fqs"}
 
-INTRO_MAX = 400
+INTRO_MAX = 2000
 
 
 def _int(v, default=0):

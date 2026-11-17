@@ -412,7 +412,8 @@ class AppRankCollector:
                 "update_date": time.strftime("%Y-%m-%d", time.localtime(upd)) if upd else "",
                 "free": b.get("free"),
                 "vip_status": b.get("vipstatus"),
-                "intro": (b.get("intro") or "").replace("\n", " ")[:200],
+                # 简介原样保留（含段落），别再截 200 字——详情里会读出半截话
+                "intro": (b.get("intro") or "").replace("\r\n", "\n").strip()[:2000],
             })
         return rows
 

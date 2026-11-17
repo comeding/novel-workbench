@@ -553,11 +553,14 @@
         });
         this.positions = this.bookPositions(row.bid);
         this.drawer = true;
-        if (isFq) return;
         const bid = String(row.bid);
-        // 「近 24 小时新增收藏」要翻历史快照做差，列表数据集里没有，单独问一次
+        /* 列表里的 in 只有前 150 字（数据集要瘦身），详情得看整段，
+           所以两个平台都问一次单书接口，顺带 QQ 还能拿到书架数快照 */
         WBAPI.book(bid).then(d => {
           if (!this.current || String(this.current.bid) !== bid) return;   // 已经翻到别的书了
+          if (d.intro) this.current.in = d.intro;
+          if (isFq) return;
+          // 「近 24 小时新增收藏」要翻历史快照做差，列表数据集里没有，单独问一次
           this.current.s24 = d.shelf_24h === undefined ? null : d.shelf_24h;
           this.current.s24h = d.shelf_24h_hours || 0;
           this.current.s24cur = d.shelf_num || 0;

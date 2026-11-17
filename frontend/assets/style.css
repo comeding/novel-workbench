@@ -327,7 +327,7 @@ body {
 .pos-row .pr { font-size: 14px; font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; }
 .pos-row .pr small { font-weight: 500; color: #a9b6d0; }
 
-.tx { margin: 0; font-size: 13.5px; line-height: 1.85; color: #5a6a8c; }
+.tx { margin: 0; font-size: 13.5px; line-height: 1.85; color: #5a6a8c; white-space: pre-wrap; word-break: break-word; }
 
 .dr-ft {
   display: flex; gap: 10px; padding: 14px 22px;

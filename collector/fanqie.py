@@ -145,6 +145,25 @@ def decode(text, mp=None):
 RE_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(亿|万)?")
 
 
+def norm_intro(v, limit=2000):
+    """简介：统一换行、去行尾空格和多余空行，过长才截。
+
+    以前是 replace("\\n", " ")[:200]，换行没了、超 200 字砍掉，
+    详情里就只剩半截。现在保留段落，前端按 pre-wrap 显示。
+    """
+    s = ("" if v is None else str(v)).replace("\r\n", "\n").replace("\r", "\n")
+    out, blank = [], False
+    for ln in (x.rstrip() for x in s.split("\n")):
+        if not ln:
+            if not blank and out:
+                out.append("")
+            blank = True
+            continue
+        blank = False
+        out.append(ln)
+    return "\n".join(out).strip()[:limit]
+
+
 def parse_num(text):
     """「74.1万人在读」→ 741000，「23.3万字」→ 233000，「3521」→ 3521。"""
     m = RE_NUM.search(text or "")
@@ -279,7 +298,7 @@ def parse_lib(books):
             "badge": "",
             "last_chapter": "",         # 书库接口不给章节名，只给时间，页面显示「—」
             "update_date": time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "",
-            "intro": decode(b.get("abstract"), LIB_FONT_MAP).replace("\n", " ")[:200],
+            "intro": norm_intro(decode(b.get("abstract"), LIB_FONT_MAP)),
         })
     return [r for r in rows if r["bid"]]
 
@@ -315,7 +334,7 @@ def parse(books, cat):
             "badge": "",
             "last_chapter": decode(b.get("lastChapterTitle")),
             "update_date": time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "",
-            "intro": decode(b.get("abstract") or "").replace("\n", " ")[:200],
+            "intro": norm_intro(decode(b.get("abstract") or "")),
         })
     return [r for r in rows if r["bid"] and r["title"]]
 

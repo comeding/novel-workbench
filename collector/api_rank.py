@@ -153,6 +153,26 @@ def fetch(cid, tag="boy", size=200, page=1, timeout=25, retry=3):
     return None
 
 
+def norm_intro(v, limit=2000):
+    """简介：统一换行、去掉行尾空格和多余空行，过长才截（防异常数据把库撑爆）。
+
+    以前是 replace("\\n", " ")[:200]——换行没了、超过 200 字直接砍，
+    详情页里就会看到半截话。现在保留段落，前端按 pre-wrap 显示。
+    """
+    s = ("" if v is None else str(v)).replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln.rstrip() for ln in s.split("\n")]
+    out, blank = [], False
+    for ln in lines:
+        if not ln:
+            if not blank and out:
+                out.append("")
+            blank = True
+            continue
+        blank = False
+        out.append(ln)
+    return "\n".join(out).strip()[:limit]
+
+
 def parse_books(data):
     """把接口返回的 bookList 转成入库行，字段与 App 采集器完全一致。"""
     rows = []
@@ -181,7 +201,9 @@ def parse_books(data):
             "update_date": time.strftime("%Y-%m-%d", time.localtime(upd)) if upd else "",
             "free": b.get("free"),
             "vip_status": b.get("vipstatus"),
-            "intro": (b.get("intro") or "").replace("\n", " ")[:200],
+            # 接口给的简介常有 300~500 字，以前截到 200，详情里就读不全了。
+            # 这里原样保留（含换行，详情按段落显示），只做一次空白规范化防脏数据
+            "intro": norm_intro(b.get("intro")),
         })
     return rows
 
